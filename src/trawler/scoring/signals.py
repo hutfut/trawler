@@ -19,18 +19,14 @@ def surprise_score(
 ) -> float:
     """How unexpected was the outcome?
 
-    Compares the resolution against the average implied probability over
-    the final stretch of trading.  A market sitting at 5% that resolves YES
-    gets a high surprise score.
+    Price history always tracks the FIRST outcome (usually "Yes").
+    If that first outcome won, surprise = how far the tail was from 1.0.
+    If it lost, surprise = how high the tail was (market expected it to win
+    but it didn't).
     """
-    if not price_history or not outcomes or not outcome_prices:
+    if not price_history or not outcomes or not resolution:
         return 0.0
 
-    yes_idx = _yes_index(outcomes, resolution)
-    if yes_idx is None:
-        return 0.0
-
-    # Use the last 20% of price history as the "settled expectation"
     tail_start = max(0, len(price_history) - max(1, len(price_history) // 5))
     tail_prices = [pt["price"] for pt in price_history[tail_start:]]
     if not tail_prices:
@@ -38,12 +34,13 @@ def surprise_score(
 
     avg_tail = sum(tail_prices) / len(tail_prices)
 
-    # If the winning outcome resolved YES, the "expected" price for that
-    # outcome was avg_tail.  Surprise = distance from 1.0.
-    resolved_yes = resolution.upper() in ("YES", outcomes[yes_idx].upper())
-    if resolved_yes:
+    first_outcome_won = resolution.upper() == outcomes[0].upper()
+
+    if first_outcome_won:
+        # First outcome won — surprise is how low the market had it
         surprise = 1.0 - avg_tail
     else:
+        # First outcome lost — surprise is how high the market had it
         surprise = avg_tail
 
     return _clamp(surprise)
@@ -170,19 +167,6 @@ def significance_score_fallback(question: str) -> float:
         score = 0.2  # baseline — most markets are at least somewhat notable
 
     return _clamp(score)
-
-
-def _yes_index(outcomes: list[str], resolution: str) -> int | None:
-    """Find which outcome index corresponds to the resolution."""
-    res = resolution.upper()
-    for i, o in enumerate(outcomes):
-        if o.upper() == res:
-            return i
-    if res == "YES":
-        return 0
-    if res == "NO":
-        return 1 if len(outcomes) > 1 else 0
-    return 0
 
 
 def _clamp(v: float, lo: float = 0.0, hi: float = 1.0) -> float:

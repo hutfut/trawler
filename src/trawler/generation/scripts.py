@@ -91,13 +91,19 @@ def _format_market_block(market: dict, history: list[dict], score: dict) -> str:
 
 
 def _load_top_markets(conn, top_n: int) -> list[dict]:
+    """Load top-scored markets, one per event, filtering out boring ones."""
     return conn.execute(
         """
-        SELECT m.*, s.surprise, s.narrative_arc, s.absurdity,
-               s.volume_score, s.significance, s.composite
-        FROM markets m
-        JOIN scores s ON m.id = s.market_id
-        ORDER BY s.composite DESC
+        SELECT * FROM (
+            SELECT DISTINCT ON (m.event_id)
+                   m.*, s.surprise, s.narrative_arc, s.absurdity,
+                   s.volume_score, s.significance, s.composite
+            FROM markets m
+            JOIN scores s ON m.id = s.market_id
+            WHERE s.narrative_arc > 0.02 OR s.surprise > 0.5
+            ORDER BY m.event_id, s.composite DESC
+        ) deduped
+        ORDER BY composite DESC
         LIMIT %s
         """,
         (top_n,),

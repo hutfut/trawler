@@ -59,12 +59,21 @@ def generate(
 @app.command()
 def review(
     limit: int = typer.Option(10, help="Number of scripts to show"),
-    export: str = typer.Option("", help="Export to markdown file at this path"),
+    export: bool = typer.Option(False, help="Export to export/review-YYYY-MM-DD-HH-MM.md"),
 ):
     """Display generated scripts for human review."""
+    from datetime import datetime
+    from pathlib import Path
+
     from trawler.generation.review import run_review
 
-    run_review(limit=limit, export_path=export)
+    export_path = ""
+    if export:
+        Path("export").mkdir(exist_ok=True)
+        ts = datetime.now().strftime("%Y-%m-%d-%H-%M")
+        export_path = f"export/review-{ts}.md"
+
+    run_review(limit=limit, export_path=export_path)
 
 
 if __name__ == "__main__":
