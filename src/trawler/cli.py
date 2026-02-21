@@ -61,19 +61,24 @@ def score(
 
 @app.command()
 def generate(
-    top: int = typer.Option(20, help="Number of top-scored markets to generate scripts for"),
+    top: int = typer.Option(20, help="Top markets per domain to consider"),
     group_size: int = typer.Option(4, help="Markets per compilation script"),
+    domain: str = typer.Option("", help="Generate for a single domain only (e.g. 'Politics')"),
 ):
-    """Generate narration scripts for top-scored markets."""
+    """Generate themed narration scripts grouped by domain."""
     from trawler.generation.scripts import run_generation
 
-    run_generation(top_n=top, group_size=group_size)
+    run_generation(
+        top_n=top, group_size=group_size,
+        domain_filter=domain or None,
+    )
 
 
 @app.command()
 def review(
     limit: int = typer.Option(10, help="Number of scripts to show"),
     export: bool = typer.Option(False, help="Export to export/review-YYYY-MM-DD-HH-MM.md"),
+    domain: str = typer.Option("", help="Filter to a single domain (e.g. 'Politics')"),
 ):
     """Display generated scripts for human review."""
     from datetime import datetime
@@ -87,7 +92,7 @@ def review(
         ts = datetime.now().strftime("%Y-%m-%d-%H-%M")
         export_path = f"export/review-{ts}.md"
 
-    run_review(limit=limit, export_path=export_path)
+    run_review(limit=limit, export_path=export_path, domain_filter=domain)
 
 
 if __name__ == "__main__":

@@ -13,10 +13,23 @@ from trawler.db import get_conn
 console = Console()
 
 
-def _load_scripts(conn, limit: int) -> list[dict]:
+def _load_scripts(conn, limit: int, domain_filter: str = "") -> list[dict]:
+    if domain_filter:
+        return conn.execute(
+            """
+            SELECT s.id, s.market_ids, s.format, s.domain,
+                   s.script_text, s.created_at
+            FROM scripts s
+            WHERE LOWER(s.domain) = LOWER(%s)
+            ORDER BY s.created_at DESC
+            LIMIT %s
+            """,
+            (domain_filter, limit),
+        ).fetchall()
     return conn.execute(
         """
-        SELECT s.id, s.market_ids, s.format, s.script_text, s.created_at
+        SELECT s.id, s.market_ids, s.format, s.domain,
+               s.script_text, s.created_at
         FROM scripts s
         ORDER BY s.created_at DESC
         LIMIT %s
@@ -46,8 +59,10 @@ def _load_markets_for_script(conn, market_ids: list[str]) -> list[dict]:
 
 def _render_script_to_console(script: dict, markets: list[dict]) -> None:
     """Render a single script with its market context to the terminal."""
+    domain_label = script.get("domain") or "—"
     header = (
         f"Script #{script['id']}  |  "
+        f"Domain: {domain_label}  |  "
         f"Format: {script['format']}  |  "
         f"Created: {script['created_at']}"
     )
@@ -96,8 +111,10 @@ def _render_script_to_console(script: dict, markets: list[dict]) -> None:
 
 def _render_script_to_markdown(script: dict, markets: list[dict]) -> str:
     """Render a single script as a markdown section."""
+    domain_label = script.get("domain") or "—"
     lines = [
         f"## Script #{script['id']}",
+        f"**Domain:** {domain_label}  ",
         f"**Format:** {script['format']}  ",
         f"**Created:** {script['created_at']}",
         "",
@@ -142,9 +159,9 @@ def _render_script_to_markdown(script: dict, markets: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def run_review(limit: int = 10, export_path: str = "") -> None:
+def run_review(limit: int = 10, export_path: str = "", domain_filter: str = "") -> None:
     with get_conn() as conn:
-        scripts = _load_scripts(conn, limit)
+        scripts = _load_scripts(conn, limit, domain_filter=domain_filter)
         if not scripts:
             console.print("[dim]No scripts found. Run 'trawler generate' first.[/dim]")
             return

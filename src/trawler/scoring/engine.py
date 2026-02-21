@@ -51,15 +51,19 @@ def _load_all_volumes(conn) -> list[float]:
     return [r["volume"] for r in rows]
 
 
-def _upsert_score(conn, market_id: str, components: dict, composite: float) -> None:
+def _upsert_score(
+    conn, market_id: str, components: dict, composite: float, domain: str,
+) -> None:
     conn.execute(
         """
         INSERT INTO scores (market_id, surprise, narrative_arc, absurdity,
                             volume_score, significance, shareability, humor,
-                            relatability, controversy, wtf_factor, composite)
+                            relatability, controversy, wtf_factor, domain,
+                            composite)
         VALUES (%(market_id)s, %(surprise)s, %(narrative_arc)s, %(absurdity)s,
                 %(volume_score)s, %(significance)s, %(shareability)s, %(humor)s,
-                %(relatability)s, %(controversy)s, %(wtf_factor)s, %(composite)s)
+                %(relatability)s, %(controversy)s, %(wtf_factor)s, %(domain)s,
+                %(composite)s)
         ON CONFLICT (market_id) DO UPDATE SET
             surprise = EXCLUDED.surprise,
             narrative_arc = EXCLUDED.narrative_arc,
@@ -71,6 +75,7 @@ def _upsert_score(conn, market_id: str, components: dict, composite: float) -> N
             relatability = EXCLUDED.relatability,
             controversy = EXCLUDED.controversy,
             wtf_factor = EXCLUDED.wtf_factor,
+            domain = EXCLUDED.domain,
             composite = EXCLUDED.composite,
             scored_at = now()
         """,
@@ -86,13 +91,56 @@ def _upsert_score(conn, market_id: str, components: dict, composite: float) -> N
             "relatability": components["relatability"],
             "controversy": components["controversy"],
             "wtf_factor": components["wtf_factor"],
+            "domain": domain,
             "composite": composite,
         },
     )
 
 
-def _heuristic_llm_scores(question: str) -> dict[str, float]:
-    """Fallback scores for all 7 LLM dimensions using keyword heuristics."""
+_DOMAIN_KEYWORDS: dict[str, list[str]] = {
+    "Politics": [
+        "trump", "biden", "election", "congress", "senate", "president",
+        "government", "shutdown", "impeach", "pardon", "war", "nato",
+        "zelenskyy", "putin", "vote", "ballot", "democrat", "republican",
+        "governor", "mayor", "legislation", "supreme court", "sanctions",
+    ],
+    "Sports": [
+        "nfl", "nba", "mlb", "nhl", "super bowl", "world series",
+        "championship", "ufc", "boxing", "tyson", "fight", "playoff",
+        "touchdown", "goal", "soccer", "football", "baseball", "basketball",
+        "tennis", "olympics", "athlete", "espn", "match",
+    ],
+    "Pop Culture": [
+        "celebrity", "movie", "film", "grammy", "oscar", "emmy", "album",
+        "song", "tiktok", "instagram", "kanye", "kardashian", "beyonce",
+        "taylor swift", "billie eilish", "stranger things", "netflix",
+        "disney", "marvel", "anime", "youtube", "influencer", "viral",
+        "award", "halftime", "super bowl halftime", "bad bunny", "drake",
+    ],
+    "Tech/Business": [
+        "tesla", "spacex", "apple", "google", "amazon", "microsoft", "ai",
+        "bitcoin", "crypto", "ethereum", "blockchain", "nft", "token",
+        "stock", "ipo", "startup", "elon musk", "self-driving", "fsd",
+        "openai", "chatgpt", "satoshi", "market cap", "valuation",
+    ],
+}
+
+
+def _heuristic_domain(question: str) -> str:
+    """Best-guess domain from keywords when LLM is unavailable."""
+    q = question.lower()
+    best_domain = "Wildcard"
+    best_hits = 0
+    for domain, keywords in _DOMAIN_KEYWORDS.items():
+        hits = sum(1 for kw in keywords if kw in q)
+        if hits > best_hits:
+            best_hits = hits
+            best_domain = domain
+    return best_domain
+
+
+def _heuristic_llm_scores(question: str) -> dict[str, float | str]:
+    """Fallback scores for all 7 LLM dimensions + domain using keyword heuristics."""
     absurdity = absurdity_score_fallback(question)
     significance = significance_score_fallback(question)
     return {
@@ -103,6 +151,7 @@ def _heuristic_llm_scores(question: str) -> dict[str, float]:
         "relatability": 0.3,
         "controversy": significance * 0.6,
         "wtf_factor": absurdity * 0.9,
+        "domain": _heuristic_domain(question),
     }
 
 
@@ -220,13 +269,15 @@ def run_scoring(rescore: bool = False) -> None:
                     else:
                         llm = _heuristic_llm_scores(question)
 
+                    domain = str(llm.get("domain", "Wildcard"))
+
                     components = {
                         **math_signals[mid],
                         **{dim: llm.get(dim, 0.5) for dim in LLM_DIMENSIONS},
                     }
 
                     composite = _compute_composite(weights, components)
-                    _upsert_score(conn, mid, components, composite)
+                    _upsert_score(conn, mid, components, composite, domain)
 
                 conn.commit()
                 progress.update(task, advance=len(batch))

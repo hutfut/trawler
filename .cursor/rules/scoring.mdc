@@ -28,6 +28,13 @@ Ten signals, each normalized to [0, 1], combined with configurable weights.
 | WTF factor | 0.07 | Pure "I can't believe this exists" energy |
 | Significance | 0.05 | Relates to major real-world events |
 
-LLM scoring uses Haiku 4.5 with batches of 6 markets per API call. The prompt sends question, resolution, and volume for each market. Falls back to keyword heuristics on batch failure.
+## Domain classification
+
+Each market is classified into one of 5 domains by the LLM during scoring:
+- Politics, Pop Culture, Sports, Tech/Business, Wildcard
+
+All 7 LLM dimensions are scored RELATIVE TO the domain. A 7/10 humor in Politics means funny for a political market; a 6/10 controversy in Politics means only moderately divisive for politics (where everything is already somewhat controversial). Domain is stored in `scores.domain`.
+
+LLM scoring uses Haiku 4.5 with batches of 6 markets per API call. The prompt sends question, resolution, and volume for each market. Response includes domain + 7 dimension scores per market. Falls back to keyword heuristics (including keyword-based domain guess) on batch failure.
 
 Volume uses a sigmoid centered on the dataset median — $100K and $1B are NOT 10,000x apart in score.

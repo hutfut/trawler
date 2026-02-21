@@ -13,11 +13,23 @@ from trawler.db import get_conn
 
 console = Console()
 
+DOMAIN_THEMES: dict[str, str] = {
+    "Politics": "political predictions and power plays",
+    "Pop Culture": "celebrity bets and entertainment predictions",
+    "Sports": "athletic upsets and sports predictions nobody saw coming",
+    "Tech/Business": "tech predictions and business bets",
+    "Wildcard": "the absolute wildest things people bet real money on",
+}
+
+MIN_DOMAIN_SIZE = 3
+
 COMPILATION_SYSTEM_PROMPT = """\
 You write short, punchy narration scripts for TikTok/YouTube Shorts videos \
-about prediction markets. The channel covers resolved prediction markets — \
-surprising outcomes, wild odds swings, and things people actually bet real \
-money on.
+about prediction markets. This video's theme is: {domain_theme}.
+
+All markets in this batch belong to the same category, so the video should \
+feel cohesive — the audience clicked for {domain_theme}, keep them engaged \
+all the way through.
 
 CRITICAL FRAMING RULES:
 - The story is the REAL-WORLD EVENT, not the bet. The prediction market is \
@@ -29,8 +41,6 @@ obvious and boring).
 - Use the market description and context provided to ground your narration in \
 real-world details. Don't just talk about odds and money — talk about the \
 actual event, the drama, the controversy, the human story.
-- If the market involves a political event, lean into the political \
-significance and controversy, not just the betting mechanics.
 
 TEMPORAL AWARENESS:
 - Today's date is {today}. You will be given the date each market resolved.
@@ -117,10 +127,19 @@ def _format_market_block(market: dict, history: list[dict], score: dict) -> str:
     return "\n".join(lines)
 
 
+_STRIP_WORDS = re.compile(
+    r"\b(?:will|the|a|an|be|in|on|by|before|after|from|to|of|for|and|or"
+    r"|january|february|march|april|may|june|july|august|september"
+    r"|october|november|december"
+    r"|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"
+)
+
+
 def _normalize_question(q: str) -> str:
-    """Strip numbers, dates, and punctuation to cluster near-duplicate questions."""
+    """Strip numbers, dates, months, filler words, and punctuation to cluster near-duplicates."""
     q = q.lower()
     q = re.sub(r"\d[\d,.\-/]*", "", q)
+    q = _STRIP_WORDS.sub("", q)
     q = re.sub(r"[^a-z\s]", "", q)
     return re.sub(r"\s+", " ", q).strip()
 
@@ -135,9 +154,11 @@ def _semantic_dedup(markets: list[dict]) -> list[dict]:
     return sorted(clusters.values(), key=lambda m: m.get("composite", 0), reverse=True)
 
 
-def _load_top_markets(conn, top_n: int) -> list[dict]:
-    """Load top-scored markets, one per event, filtering out boring ones."""
-    pool_size = top_n * 3
+def _load_top_markets_by_domain(
+    conn, per_domain: int,
+) -> dict[str, list[dict]]:
+    """Load top-scored markets grouped by domain, one per event, deduped."""
+    pool_size = per_domain * 5
     rows = conn.execute(
         """
         SELECT * FROM (
@@ -146,11 +167,12 @@ def _load_top_markets(conn, top_n: int) -> list[dict]:
                    s.surprise, s.narrative_arc, s.absurdity,
                    s.volume_score, s.significance, s.shareability,
                    s.humor, s.relatability, s.controversy,
-                   s.wtf_factor, s.composite
+                   s.wtf_factor, s.domain, s.composite
             FROM markets m
             JOIN events e ON m.event_id = e.id
             JOIN scores s ON m.id = s.market_id
             WHERE m.volume >= 500
+              AND s.domain IS NOT NULL
               AND (s.narrative_arc > 0.02 OR s.surprise > 0.5
                    OR s.absurdity > 0.3 OR s.shareability > 0.5
                    OR s.humor > 0.5 OR s.wtf_factor > 0.5)
@@ -162,8 +184,24 @@ def _load_top_markets(conn, top_n: int) -> list[dict]:
         (pool_size,),
     ).fetchall()
 
-    deduped = _semantic_dedup(rows)
-    return deduped[:top_n]
+    by_domain: dict[str, list[dict]] = {}
+    for row in rows:
+        domain = row.get("domain") or "Wildcard"
+        by_domain.setdefault(domain, []).append(row)
+
+    for domain in list(by_domain):
+        by_domain[domain] = _semantic_dedup(by_domain[domain])[:per_domain]
+
+    wildcard = by_domain.pop("Wildcard", [])
+    for domain in list(by_domain):
+        if len(by_domain[domain]) < MIN_DOMAIN_SIZE:
+            wildcard.extend(by_domain.pop(domain))
+
+    if wildcard:
+        wildcard = _semantic_dedup(wildcard)[:per_domain]
+        by_domain["Wildcard"] = wildcard
+
+    return by_domain
 
 
 def _load_price_history(conn, market_id: str) -> list[dict]:
@@ -190,10 +228,13 @@ def _already_scripted(conn, market_ids: list[str]) -> bool:
 
 def _generate_compilation_script(
     markets_with_context: list[tuple[dict, list[dict], dict]],
+    domain: str,
 ) -> dict:
-    """Call the LLM to produce a compilation script."""
+    """Call the LLM to produce a themed compilation script."""
     cfg = get_config()
     client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
+
+    domain_theme = DOMAIN_THEMES.get(domain, DOMAIN_THEMES["Wildcard"])
 
     markets_block = "\n\n---\n\n".join(
         _format_market_block(m, h, s) for m, h, s in markets_with_context
@@ -202,7 +243,10 @@ def _generate_compilation_script(
     resp = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=2000,
-        system=COMPILATION_SYSTEM_PROMPT.format(today=date.today().isoformat()),
+        system=COMPILATION_SYSTEM_PROMPT.format(
+            today=date.today().isoformat(),
+            domain_theme=domain_theme,
+        ),
         messages=[
             {
                 "role": "user",
@@ -215,15 +259,18 @@ def _generate_compilation_script(
     )
 
     text = resp.content[0].text.strip()
-    # Handle markdown-wrapped JSON
     if text.startswith("```"):
-        text = text.split("\n", 1)[1]  # remove opening fence
-        text = text.rsplit("```", 1)[0]  # remove closing fence
+        text = text.split("\n", 1)[1]
+        text = text.rsplit("```", 1)[0]
 
     return json.loads(text)
 
 
-def run_generation(top_n: int = 20, group_size: int = 4) -> None:
+def run_generation(
+    top_n: int = 20,
+    group_size: int = 4,
+    domain_filter: str | None = None,
+) -> None:
     cfg = get_config()
     if not cfg.anthropic_api_key:
         console.print(
@@ -232,23 +279,34 @@ def run_generation(top_n: int = 20, group_size: int = 4) -> None:
         raise SystemExit(1)
 
     with get_conn() as conn:
-        markets = _load_top_markets(conn, top_n)
-        if not markets:
+        by_domain = _load_top_markets_by_domain(conn, per_domain=top_n)
+
+        if domain_filter:
+            by_domain = {
+                k: v for k, v in by_domain.items()
+                if k.lower() == domain_filter.lower()
+            }
+
+        if not by_domain:
             console.print("[dim]No scored markets found. Run 'trawler score' first.[/dim]")
             return
 
+        total_markets = sum(len(v) for v in by_domain.values())
         console.print(
-            f"Generating scripts from top [cyan]{len(markets)}[/cyan] scored markets "
-            f"(groups of {group_size})…"
+            f"[cyan]{total_markets}[/cyan] markets across "
+            f"[cyan]{len(by_domain)}[/cyan] domains: "
+            + ", ".join(f"{d} ({len(ms)})" for d, ms in by_domain.items())
         )
 
-        # Split into groups
-        groups: list[list[dict]] = []
-        for i in range(0, len(markets), group_size):
-            groups.append(markets[i : i + group_size])
+        # Build (domain, group) pairs for all domains
+        all_groups: list[tuple[str, list[dict]]] = []
+        for domain, markets in by_domain.items():
+            for i in range(0, len(markets), group_size):
+                all_groups.append((domain, markets[i : i + group_size]))
 
         generated = 0
         skipped = 0
+        used_ids: set[str] = set()
 
         with Progress(
             SpinnerColumn(),
@@ -257,9 +315,15 @@ def run_generation(top_n: int = 20, group_size: int = 4) -> None:
             TaskProgressColumn(),
             console=console,
         ) as progress:
-            task = progress.add_task("Generating…", total=len(groups))
+            task = progress.add_task("Generating…", total=len(all_groups))
 
-            for group in groups:
+            for domain, group in all_groups:
+                # Cross-script dedup: drop markets already used
+                group = [m for m in group if m["id"] not in used_ids]
+                if not group:
+                    progress.update(task, advance=1)
+                    continue
+
                 market_ids = [m["id"] for m in group]
 
                 if _already_scripted(conn, market_ids):
@@ -267,7 +331,6 @@ def run_generation(top_n: int = 20, group_size: int = 4) -> None:
                     progress.update(task, advance=1)
                     continue
 
-                # Build context for each market in the group
                 markets_with_context = []
                 for m in group:
                     history = _load_price_history(conn, m["id"])
@@ -278,9 +341,10 @@ def run_generation(top_n: int = 20, group_size: int = 4) -> None:
                     markets_with_context.append((m, history, score_dict))
 
                 try:
-                    result = _generate_compilation_script(markets_with_context)
+                    result = _generate_compilation_script(
+                        markets_with_context, domain,
+                    )
 
-                    # Format the full script text for storage
                     script_lines = [f"INTRO: {result.get('intro', '')}"]
                     for seg in result.get("segments", []):
                         script_lines.append(f"\nSEGMENT ({seg.get('market_id', '?')}):")
@@ -290,16 +354,20 @@ def run_generation(top_n: int = 20, group_size: int = 4) -> None:
 
                     conn.execute(
                         """
-                        INSERT INTO scripts (market_ids, format, script_text)
-                        VALUES (%s, %s, %s)
+                        INSERT INTO scripts (market_ids, format, domain, script_text)
+                        VALUES (%s, %s, %s, %s)
                         """,
-                        (json.dumps(sorted(market_ids)), "compilation", script_text),
+                        (json.dumps(sorted(market_ids)), "compilation",
+                         domain, script_text),
                     )
                     conn.commit()
                     generated += 1
+                    used_ids.update(market_ids)
 
                 except Exception as exc:
-                    console.print(f"[yellow]Warning: script generation failed: {exc}[/yellow]")
+                    console.print(
+                        f"[yellow]Warning: {domain} script generation failed: {exc}[/yellow]"
+                    )
 
                 progress.update(task, advance=1)
 

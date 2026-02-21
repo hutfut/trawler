@@ -12,32 +12,45 @@ import anthropic
 
 from trawler.config import get_config
 
+VALID_DOMAINS = ["Politics", "Pop Culture", "Sports", "Tech/Business", "Wildcard"]
+
 LLM_DIMENSIONS = [
     "absurdity", "significance", "shareability",
     "humor", "relatability", "controversy", "wtf_factor",
 ]
 
 _BATCH_PROMPT = """\
-Rate each resolved prediction market below on 7 dimensions (1-10 each).
+For each resolved prediction market below, first classify it into exactly one \
+domain, then rate it on 7 dimensions (1-10 each).
 
-1. ABSURDITY: Would someone scrolling TikTok stop and think "wait, people \
-actually bet on that?" Consider the question AND the outcome.
-2. SIGNIFICANCE: Does this relate to a major real-world event (elections, \
-wars, economic shifts, breakthroughs, major cultural moments)?
-3. SHAREABILITY: Would someone send this to a friend or post it unprompted? \
-The best markets make people say "you have to see this."
-4. HUMOR: Is this genuinely funny — not just surprising, but laugh-out-loud \
-or absurdly comedic?
-5. RELATABILITY: Does this touch something a broad audience cares about? \
-Niche crypto or sports spreads score low; pop culture, everyday life score high.
-6. CONTROVERSY: Does this topic spark debate or strong opinions? Markets \
-where people would argue in the comments score high.
-7. WTF_FACTOR: Pure "I can't believe this exists" energy. The market's \
-mere existence is the story.
+STEP 1 — CLASSIFY into one domain:
+- Politics: elections, legislation, government, geopolitics, world leaders
+- Pop Culture: celebrities, music, movies, TV, social media, awards
+- Sports: athletic competition, fighting, esports
+- Tech/Business: companies, products, crypto, finance, AI, space
+- Wildcard: anything that doesn't fit, or pure WTF-energy
+
+STEP 2 — SCORE relative to the domain. All 7 scores should reflect what's \
+notable WITHIN that category, not globally. A 7/10 humor in Politics means \
+genuinely funny for a political market. A 6/10 controversy in Politics means \
+only moderately divisive for politics (where everything is already somewhat \
+controversial). An 8/10 shareability in Tech/Business means tech people would \
+definitely send it around.
+
+Dimensions:
+1. ABSURDITY: "Wait, people actually bet on that?" — relative to the domain.
+2. SIGNIFICANCE: How major is this within its domain? A mid-tier election \
+market is less significant than a landmark ruling, even though both are Politics.
+3. SHAREABILITY: Would someone in this domain's audience send it to a friend?
+4. HUMOR: Genuinely funny for this domain's audience — not just surprising.
+5. RELATABILITY: Does a broad audience within this domain care, or is it niche?
+6. CONTROVERSY: Sparks debate among people who follow this domain.
+7. WTF_FACTOR: "I can't believe this exists" energy, calibrated to the domain.
 
 Respond with ONLY a JSON array — one object per market, in order:
-[{{"id": 1, "absurdity": <int>, "significance": <int>, "shareability": <int>, \
-"humor": <int>, "relatability": <int>, "controversy": <int>, "wtf_factor": <int>}}, ...]
+[{{"id": 1, "domain": "<domain>", "absurdity": <int>, "significance": <int>, \
+"shareability": <int>, "humor": <int>, "relatability": <int>, \
+"controversy": <int>, "wtf_factor": <int>}}, ...]
 
 Markets:
 {markets_block}"""
@@ -102,10 +115,13 @@ def score_markets_batch(markets: list[dict]) -> dict[str, dict]:
     scores: dict[str, dict] = {}
     for i, entry in enumerate(raw):
         market_id = markets[i]["id"]
-        scores[market_id] = {
+        dim_scores = {
             dim: int(entry.get(dim, 5)) / 10.0
             for dim in LLM_DIMENSIONS
         }
+        raw_domain = str(entry.get("domain", "Wildcard"))
+        dim_scores["domain"] = raw_domain if raw_domain in VALID_DOMAINS else "Wildcard"
+        scores[market_id] = dim_scores
 
     return scores
 
@@ -126,7 +142,9 @@ def score_market_llm(
         "resolution": resolution,
         "volume": volume,
     }])
-    return result.get(market_id or "single", {dim: 0.5 for dim in LLM_DIMENSIONS})
+    fallback = {dim: 0.5 for dim in LLM_DIMENSIONS}
+    fallback["domain"] = "Wildcard"
+    return result.get(market_id or "single", fallback)
 
 
 def llm_available() -> bool:

@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS scores (
     relatability    DOUBLE PRECISION,
     controversy     DOUBLE PRECISION,
     wtf_factor      DOUBLE PRECISION,
+    domain          TEXT,
     composite       DOUBLE PRECISION NOT NULL,
     scored_at       TIMESTAMPTZ DEFAULT now()
 );
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS scripts (
     id              SERIAL PRIMARY KEY,
     market_ids      JSONB NOT NULL,
     format          TEXT NOT NULL DEFAULT 'compilation',
+    domain          TEXT,
     script_text     TEXT NOT NULL,
     created_at      TIMESTAMPTZ DEFAULT now()
 );
