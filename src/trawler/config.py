@@ -10,22 +10,30 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class ScoringWeights:
-    surprise: float = 0.25
-    narrative_arc: float = 0.20
-    absurdity: float = 0.30
+    surprise: float = 0.12
+    narrative_arc: float = 0.08
     volume: float = 0.05
-    significance: float = 0.10
-    topical: float = 0.10
+    absurdity: float = 0.10
+    significance: float = 0.05
+    shareability: float = 0.20
+    humor: float = 0.15
+    relatability: float = 0.10
+    controversy: float = 0.08
+    wtf_factor: float = 0.07
 
     @classmethod
     def from_env(cls) -> ScoringWeights:
         return cls(
             surprise=float(os.getenv("WEIGHT_SURPRISE", cls.surprise)),
             narrative_arc=float(os.getenv("WEIGHT_NARRATIVE_ARC", cls.narrative_arc)),
-            absurdity=float(os.getenv("WEIGHT_ABSURDITY", cls.absurdity)),
             volume=float(os.getenv("WEIGHT_VOLUME", cls.volume)),
+            absurdity=float(os.getenv("WEIGHT_ABSURDITY", cls.absurdity)),
             significance=float(os.getenv("WEIGHT_SIGNIFICANCE", cls.significance)),
-            topical=float(os.getenv("WEIGHT_TOPICAL", cls.topical)),
+            shareability=float(os.getenv("WEIGHT_SHAREABILITY", cls.shareability)),
+            humor=float(os.getenv("WEIGHT_HUMOR", cls.humor)),
+            relatability=float(os.getenv("WEIGHT_RELATABILITY", cls.relatability)),
+            controversy=float(os.getenv("WEIGHT_CONTROVERSY", cls.controversy)),
+            wtf_factor=float(os.getenv("WEIGHT_WTF_FACTOR", cls.wtf_factor)),
         )
 
 

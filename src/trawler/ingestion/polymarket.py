@@ -17,16 +17,23 @@ CLOB_BASE = "https://clob.polymarket.com"
 
 PAGE_SIZE = 100
 PRICE_HISTORY_FIDELITY = 60  # minutes
+VOLUME_FLOOR = 500  # skip markets below this dollar volume
+
+NOVELTY_TAG_IDS = [596, 286, 53, 100, 315]  # Culture, Celebrities, Movies, Music, Entertainment
+SPORTS_TAG_ID = 1
 
 
 def _fetch_closed_events_page(
     client: httpx.Client,
-    order: str,
-    ascending: bool,
     limit: int,
     label: str,
+    *,
+    order: str = "volume",
+    ascending: bool = False,
+    tag_id: int | None = None,
+    exclude_tag_id: int | None = None,
 ) -> list[dict]:
-    """Paginate through closed events with a given ordering."""
+    """Paginate through closed events with a given ordering and optional tag filters."""
     events: list[dict] = []
     offset = 0
 
@@ -41,16 +48,19 @@ def _fetch_closed_events_page(
 
         while len(events) < limit:
             batch_limit = min(PAGE_SIZE, limit - len(events))
-            resp = client.get(
-                f"{GAMMA_BASE}/events",
-                params={
-                    "closed": "true",
-                    "order": order,
-                    "ascending": str(ascending).lower(),
-                    "limit": batch_limit,
-                    "offset": offset,
-                },
-            )
+            params: dict = {
+                "closed": "true",
+                "order": order,
+                "ascending": str(ascending).lower(),
+                "limit": batch_limit,
+                "offset": offset,
+            }
+            if tag_id is not None:
+                params["tag_id"] = tag_id
+            if exclude_tag_id is not None:
+                params["exclude_tag_id"] = exclude_tag_id
+
+            resp = client.get(f"{GAMMA_BASE}/events", params=params)
             resp.raise_for_status()
             batch = resp.json()
             if not batch:
@@ -63,35 +73,57 @@ def _fetch_closed_events_page(
     return events[:limit]
 
 
-def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
-    """Fetch a diverse pool of closed events using multiple orderings.
-
-    Pulls high-volume events for coverage, plus low-liquidity events to
-    catch niche/weird markets that scoring might rank highly on absurdity.
-    """
-    half = max(limit // 2, 1)
-
-    by_volume = _fetch_closed_events_page(
-        client, order="volume", ascending=False, limit=half,
-        label="top volume events",
-    )
-    by_niche = _fetch_closed_events_page(
-        client, order="liquidity", ascending=True, limit=half,
-        label="niche/low-liquidity events",
-    )
-
+def _dedup_events(event_lists: list[tuple[str, list[dict]]]) -> list[dict]:
+    """Merge multiple event lists, deduplicating by event ID."""
     seen_ids: set[str] = set()
     merged: list[dict] = []
-    for event in by_volume + by_niche:
-        eid = str(event.get("id", ""))
-        if eid not in seen_ids:
-            seen_ids.add(eid)
-            merged.append(event)
+    bucket_counts: list[str] = []
 
-    console.print(
-        f"[dim]Merged {len(by_volume)} by volume + {len(by_niche)} niche "
-        f"→ {len(merged)} unique events[/dim]"
-    )
+    for label, events in event_lists:
+        added = 0
+        for event in events:
+            eid = str(event.get("id", ""))
+            if eid and eid not in seen_ids:
+                seen_ids.add(eid)
+                merged.append(event)
+                added += 1
+        bucket_counts.append(f"{added} from {label}")
+
+    console.print(f"[dim]Merged: {', '.join(bucket_counts)} → {len(merged)} unique events[/dim]")
+    return merged
+
+
+def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
+    """Fetch a diverse pool of closed events using multiple strategies.
+
+    Bucket A: competitive ordering — contested markets with dramatic odds
+    Bucket B: high-volume non-sports — broad cultural coverage
+    Bucket C: tag-targeted fetches for novelty-rich categories
+    """
+    bucket_a_size = max(limit // 3, 1)
+    bucket_b_size = max(limit // 3, 1)
+    bucket_c_per_tag = max(limit // (3 * len(NOVELTY_TAG_IDS)), 1)
+
+    buckets: list[tuple[str, list[dict]]] = []
+
+    buckets.append(("competitive", _fetch_closed_events_page(
+        client, limit=bucket_a_size, label="competitive events",
+        order="competitive", ascending=False,
+    )))
+
+    buckets.append(("volume (no sports)", _fetch_closed_events_page(
+        client, limit=bucket_b_size, label="high-volume non-sports",
+        order="volume", ascending=False, exclude_tag_id=SPORTS_TAG_ID,
+    )))
+
+    for tag_id in NOVELTY_TAG_IDS:
+        tag_label = {596: "Culture", 286: "Celebrities", 53: "Movies", 100: "Music", 315: "Entertainment"}.get(tag_id, str(tag_id))
+        buckets.append((tag_label, _fetch_closed_events_page(
+            client, limit=bucket_c_per_tag, label=f"tag: {tag_label}",
+            order="volume", ascending=False, tag_id=tag_id,
+        )))
+
+    merged = _dedup_events(buckets)
     return merged[:limit]
 
 
@@ -237,14 +269,21 @@ def run_ingest(limit: int = 500) -> None:
 
     console.print(f"Fetched [cyan]{len(events)}[/cyan] closed events.")
 
-    # Collect all markets from events
     all_markets: list[tuple[str, dict]] = []
+    skipped_low_vol = 0
     for event in events:
         event_id = str(event.get("id", ""))
         for market in event.get("markets", []):
+            vol = float(market.get("volume", 0) or 0)
+            if vol < VOLUME_FLOOR:
+                skipped_low_vol += 1
+                continue
             all_markets.append((event_id, market))
 
-    console.print(f"Found [cyan]{len(all_markets)}[/cyan] markets across those events.")
+    console.print(
+        f"Found [cyan]{len(all_markets)}[/cyan] markets across those events"
+        f" ([dim]{skipped_low_vol} skipped below ${VOLUME_FLOOR} volume[/dim])."
+    )
 
     # Upsert events and markets
     with get_conn() as conn:

@@ -97,10 +97,15 @@ def _load_top_markets(conn, top_n: int) -> list[dict]:
         SELECT * FROM (
             SELECT DISTINCT ON (m.event_id)
                    m.*, s.surprise, s.narrative_arc, s.absurdity,
-                   s.volume_score, s.significance, s.composite
+                   s.volume_score, s.significance, s.shareability,
+                   s.humor, s.relatability, s.controversy,
+                   s.wtf_factor, s.composite
             FROM markets m
             JOIN scores s ON m.id = s.market_id
-            WHERE s.narrative_arc > 0.02 OR s.surprise > 0.5
+            WHERE m.volume >= 500
+              AND (s.narrative_arc > 0.02 OR s.surprise > 0.5
+                   OR s.absurdity > 0.3 OR s.shareability > 0.5
+                   OR s.humor > 0.5 OR s.wtf_factor > 0.5)
             ORDER BY m.event_id, s.composite DESC
         ) deduped
         ORDER BY composite DESC

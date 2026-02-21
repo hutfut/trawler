@@ -52,7 +52,11 @@ CREATE TABLE IF NOT EXISTS scores (
     absurdity       DOUBLE PRECISION,
     volume_score    DOUBLE PRECISION,
     significance    DOUBLE PRECISION,
-    topical         DOUBLE PRECISION,
+    shareability    DOUBLE PRECISION,
+    humor           DOUBLE PRECISION,
+    relatability    DOUBLE PRECISION,
+    controversy     DOUBLE PRECISION,
+    wtf_factor      DOUBLE PRECISION,
     composite       DOUBLE PRECISION NOT NULL,
     scored_at       TIMESTAMPTZ DEFAULT now()
 );
@@ -78,3 +82,17 @@ def init_db() -> None:
     with get_conn() as conn:
         conn.execute(_SCHEMA_SQL)
         conn.commit()
+
+
+def reset_db() -> None:
+    """Drop all tables and recreate the schema from scratch."""
+    with get_conn() as conn:
+        conn.execute("""
+            DROP TABLE IF EXISTS scripts CASCADE;
+            DROP TABLE IF EXISTS scores CASCADE;
+            DROP TABLE IF EXISTS price_history CASCADE;
+            DROP TABLE IF EXISTS markets CASCADE;
+            DROP TABLE IF EXISTS events CASCADE;
+        """)
+        conn.commit()
+    init_db()

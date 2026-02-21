@@ -17,6 +17,20 @@ def init():
 
 
 @app.command()
+def reset(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+):
+    """Drop all tables and reinitialize. Use for clean iteration loops."""
+    from trawler.db import reset_db
+
+    if not yes:
+        typer.confirm("This will delete ALL data. Continue?", abort=True)
+
+    reset_db()
+    console.print("[green]Database reset — all tables dropped and recreated.[/green]")
+
+
+@app.command()
 def ingest(
     limit: int = typer.Option(500, help="Max number of resolved events to fetch"),
 ):

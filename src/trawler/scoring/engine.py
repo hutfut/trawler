@@ -15,11 +15,15 @@ from trawler.scoring.signals import (
     significance_score_fallback,
 )
 from trawler.scoring.llm_signals import (
-    score_market_llm,
+    score_markets_batch,
+    LLM_DIMENSIONS,
     llm_available,
 )
 
 console = Console()
+
+MIN_VOLUME = 500
+LLM_BATCH_SIZE = 6
 
 
 def _load_markets(conn, rescore: bool) -> list[dict]:
@@ -51,16 +55,22 @@ def _upsert_score(conn, market_id: str, components: dict, composite: float) -> N
     conn.execute(
         """
         INSERT INTO scores (market_id, surprise, narrative_arc, absurdity,
-                            volume_score, significance, topical, composite)
+                            volume_score, significance, shareability, humor,
+                            relatability, controversy, wtf_factor, composite)
         VALUES (%(market_id)s, %(surprise)s, %(narrative_arc)s, %(absurdity)s,
-                %(volume_score)s, %(significance)s, %(topical)s, %(composite)s)
+                %(volume_score)s, %(significance)s, %(shareability)s, %(humor)s,
+                %(relatability)s, %(controversy)s, %(wtf_factor)s, %(composite)s)
         ON CONFLICT (market_id) DO UPDATE SET
             surprise = EXCLUDED.surprise,
             narrative_arc = EXCLUDED.narrative_arc,
             absurdity = EXCLUDED.absurdity,
             volume_score = EXCLUDED.volume_score,
             significance = EXCLUDED.significance,
-            topical = EXCLUDED.topical,
+            shareability = EXCLUDED.shareability,
+            humor = EXCLUDED.humor,
+            relatability = EXCLUDED.relatability,
+            controversy = EXCLUDED.controversy,
+            wtf_factor = EXCLUDED.wtf_factor,
             composite = EXCLUDED.composite,
             scored_at = now()
         """,
@@ -71,9 +81,43 @@ def _upsert_score(conn, market_id: str, components: dict, composite: float) -> N
             "absurdity": components["absurdity"],
             "volume_score": components["volume_score"],
             "significance": components["significance"],
-            "topical": components["topical"],
+            "shareability": components["shareability"],
+            "humor": components["humor"],
+            "relatability": components["relatability"],
+            "controversy": components["controversy"],
+            "wtf_factor": components["wtf_factor"],
             "composite": composite,
         },
+    )
+
+
+def _heuristic_llm_scores(question: str) -> dict[str, float]:
+    """Fallback scores for all 7 LLM dimensions using keyword heuristics."""
+    absurdity = absurdity_score_fallback(question)
+    significance = significance_score_fallback(question)
+    return {
+        "absurdity": absurdity,
+        "significance": significance,
+        "shareability": (absurdity + significance) / 2,
+        "humor": absurdity * 0.8,
+        "relatability": 0.3,
+        "controversy": significance * 0.6,
+        "wtf_factor": absurdity * 0.9,
+    }
+
+
+def _compute_composite(weights, components: dict) -> float:
+    return (
+        weights.surprise * components["surprise"]
+        + weights.narrative_arc * components["narrative_arc"]
+        + weights.volume * components["volume_score"]
+        + weights.absurdity * components["absurdity"]
+        + weights.significance * components["significance"]
+        + weights.shareability * components["shareability"]
+        + weights.humor * components["humor"]
+        + weights.relatability * components["relatability"]
+        + weights.controversy * components["controversy"]
+        + weights.wtf_factor * components["wtf_factor"]
     )
 
 
@@ -83,11 +127,14 @@ def run_scoring(rescore: bool = False) -> None:
     use_llm = llm_available()
 
     if use_llm:
-        console.print("[green]LLM scoring enabled[/green] (Haiku · 1 call per market).")
+        console.print(
+            f"[green]LLM scoring enabled[/green] "
+            f"(Haiku · batches of {LLM_BATCH_SIZE} · 7 dimensions)."
+        )
     else:
         console.print(
             "[yellow]LLM scoring disabled[/yellow] — using heuristic fallbacks. "
-            "Set ANTHROPIC_API_KEY for better absurdity/significance scoring."
+            "Set ANTHROPIC_API_KEY for better scoring."
         )
 
     with get_conn() as conn:
@@ -96,9 +143,43 @@ def run_scoring(rescore: bool = False) -> None:
             console.print("[dim]No unscored markets found.[/dim]")
             return
 
+        pre_filter = len(markets)
+        markets = [m for m in markets if (m.get("volume") or 0) >= MIN_VOLUME]
+        if pre_filter != len(markets):
+            console.print(
+                f"[dim]Skipped {pre_filter - len(markets)} markets below "
+                f"${MIN_VOLUME} volume[/dim]"
+            )
+
         all_volumes = _load_all_volumes(conn)
 
         console.print(f"Scoring [cyan]{len(markets)}[/cyan] markets…")
+
+        # Pre-compute math-derived signals for all markets
+        math_signals: dict[str, dict] = {}
+        for market in markets:
+            mid = market["id"]
+            resolution = market.get("resolution", "")
+
+            outcomes = market.get("outcomes", [])
+            if isinstance(outcomes, str):
+                outcomes = json.loads(outcomes)
+
+            outcome_prices = market.get("outcome_prices", [])
+            if isinstance(outcome_prices, str):
+                outcome_prices = json.loads(outcome_prices)
+            outcome_prices = [float(p) for p in outcome_prices] if outcome_prices else []
+
+            history = _load_price_history(conn, mid)
+
+            math_signals[mid] = {
+                "surprise": surprise_score(resolution, outcome_prices, outcomes, history),
+                "narrative_arc": narrative_arc_score(history),
+                "volume_score": volume_score(market.get("volume", 0) or 0, all_volumes),
+            }
+
+        # LLM scoring in batches
+        batches = [markets[i:i + LLM_BATCH_SIZE] for i in range(0, len(markets), LLM_BATCH_SIZE)]
 
         with Progress(
             SpinnerColumn(),
@@ -109,61 +190,45 @@ def run_scoring(rescore: bool = False) -> None:
         ) as progress:
             task = progress.add_task("Scoring…", total=len(markets))
 
-            for market in markets:
-                market_id = market["id"]
-                question = market["question"]
-                resolution = market.get("resolution", "")
-
-                outcomes = market.get("outcomes", [])
-                if isinstance(outcomes, str):
-                    outcomes = json.loads(outcomes)
-
-                outcome_prices = market.get("outcome_prices", [])
-                if isinstance(outcome_prices, str):
-                    outcome_prices = json.loads(outcome_prices)
-                outcome_prices = [float(p) for p in outcome_prices] if outcome_prices else []
-
-                history = _load_price_history(conn, market_id)
-
-                s_surprise = surprise_score(resolution, outcome_prices, outcomes, history)
-                s_narrative = narrative_arc_score(history)
+            for batch in batches:
+                llm_scores: dict[str, dict] = {}
 
                 if use_llm:
+                    batch_input = [
+                        {
+                            "id": m["id"],
+                            "question": m["question"],
+                            "resolution": m.get("resolution", ""),
+                            "volume": m.get("volume", 0) or 0,
+                        }
+                        for m in batch
+                    ]
                     try:
-                        s_absurdity, s_significance = score_market_llm(question)
+                        llm_scores = score_markets_batch(batch_input)
                     except Exception as exc:
                         console.print(
-                            f"[yellow]LLM fallback for {market_id}: {exc}[/yellow]"
+                            f"[yellow]Batch LLM failed ({len(batch)} markets): "
+                            f"{exc} — using heuristics[/yellow]"
                         )
-                        s_absurdity = absurdity_score_fallback(question)
-                        s_significance = significance_score_fallback(question)
-                else:
-                    s_absurdity = absurdity_score_fallback(question)
-                    s_significance = significance_score_fallback(question)
 
-                s_volume = volume_score(market.get("volume", 0) or 0, all_volumes)
-                s_topical = 0.0
+                for market in batch:
+                    mid = market["id"]
+                    question = market["question"]
 
-                components = {
-                    "surprise": s_surprise,
-                    "narrative_arc": s_narrative,
-                    "absurdity": s_absurdity,
-                    "volume_score": s_volume,
-                    "significance": s_significance,
-                    "topical": s_topical,
-                }
+                    if mid in llm_scores:
+                        llm = llm_scores[mid]
+                    else:
+                        llm = _heuristic_llm_scores(question)
 
-                composite = (
-                    weights.surprise * s_surprise
-                    + weights.narrative_arc * s_narrative
-                    + weights.absurdity * s_absurdity
-                    + weights.volume * s_volume
-                    + weights.significance * s_significance
-                    + weights.topical * s_topical
-                )
+                    components = {
+                        **math_signals[mid],
+                        **{dim: llm.get(dim, 0.5) for dim in LLM_DIMENSIONS},
+                    }
 
-                _upsert_score(conn, market_id, components, composite)
+                    composite = _compute_composite(weights, components)
+                    _upsert_score(conn, mid, components, composite)
+
                 conn.commit()
-                progress.update(task, advance=1)
+                progress.update(task, advance=len(batch))
 
     console.print("[green]Scoring complete.[/green]")

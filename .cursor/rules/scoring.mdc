@@ -6,19 +6,28 @@ alwaysApply: false
 
 # Scoring system
 
-Six signals, each normalized to [0, 1], combined with configurable weights:
+Ten signals, each normalized to [0, 1], combined with configurable weights.
+
+## Math-derived signals (no LLM)
 
 | Signal | Weight | Source |
 |--------|--------|--------|
-| Surprise | 0.25 | Math — gap between prevailing odds and actual resolution |
-| Narrative arc | 0.20 | Math — volatility, reversals, max swing in price history |
-| Absurdity | 0.30 | LLM (Haiku 4.5) — "would this make someone stop scrolling?" |
-| Volume | 0.05 | Math — sigmoid-capped so mega-markets don't dominate |
-| Significance | 0.10 | LLM (Haiku 4.5) — does this relate to a major world event? |
-| Topical | 0.10 | Stubbed for V1 — future: cross-ref with social/news signals |
+| Surprise | 0.12 | Gap between prevailing odds and actual resolution |
+| Narrative arc | 0.08 | Volatility, reversals, max swing in price history |
+| Volume | 0.05 | Sigmoid-capped so mega-markets don't dominate |
 
-Absurdity is weighted highest because the target content leans toward funny/surprising/absurd markets.
+## LLM-derived signals (7 dimensions, batched)
 
-Volume uses a sigmoid centered on the dataset median — $100K and $1B are NOT 10,000x apart in score. This prevents boring high-volume markets from dominating.
+| Signal | Weight | What it measures |
+|--------|--------|------------------|
+| Shareability | 0.20 | Would someone send this to a friend unprompted? |
+| Humor | 0.15 | Genuinely funny, not just surprising |
+| Absurdity | 0.10 | "Wait, people actually bet on that?" |
+| Relatability | 0.10 | Broad audience appeal vs niche |
+| Controversy | 0.08 | Sparks debate or strong opinions |
+| WTF factor | 0.07 | Pure "I can't believe this exists" energy |
+| Significance | 0.05 | Relates to major real-world events |
 
-LLM scoring uses a single combined prompt (absurdity + significance in one call) to minimize API costs. Falls back to keyword heuristics on error.
+LLM scoring uses Haiku 4.5 with batches of 6 markets per API call. The prompt sends question, resolution, and volume for each market. Falls back to keyword heuristics on batch failure.
+
+Volume uses a sigmoid centered on the dataset median — $100K and $1B are NOT 10,000x apart in score.

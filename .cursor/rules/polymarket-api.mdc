@@ -1,0 +1,55 @@
+---
+description: Polymarket API reference and gotchas
+globs: "src/trawler/ingestion/**"
+alwaysApply: false
+---
+
+# Polymarket API
+
+Two separate APIs, both public, no auth required.
+
+## Gamma API (market discovery)
+
+Base: `https://gamma-api.polymarket.com`
+
+**Events** (contain nested markets):
+- `GET /events` — list events with filtering
+- `GET /events?slug=<slug>` or `GET /events/slug/<slug>` — by slug
+
+Key params for `/events`:
+- `active` (bool) — live tradable events
+- `closed` (bool) — resolved events
+- `order` — valid values for closed events: `volume`, `liquidity`, `competitive`
+  - `end_date`, `start_date`, `created_at`, `volume_24hr`, `closed_time` are NOT valid for closed events (422 error)
+- `ascending` (bool)
+- `limit` / `offset` — pagination
+- `tag_id` — filter by category tag
+- `exclude_tag_id` — exclude a category
+
+**Tags**: `GET /tags` returns available category tags with IDs.
+**Sports**: `GET /sports` returns sports-specific tags and metadata.
+
+Key tag IDs for ingestion:
+- Sports: `1` (excluded from volume bucket to avoid repetitive sports spreads)
+- Culture: `596`, Celebrities: `286`, Movies: `53`, Music: `100`, Entertainment: `315`
+- `order=competitive` surfaces contested/dramatic markets — best for novelty
+
+## CLOB API (price history)
+
+Base: `https://clob.polymarket.com`
+
+- `GET /prices-history` — time-series odds data
+  - `market` (required) — asset ID (from `clobTokenIds[0]` on a market object)
+  - `interval` — `max`, `all`, `1m`, `1w`, `1d`, `6h`, `1h`
+  - `fidelity` — accuracy in minutes (default 1, we use 60)
+  - `startTs` / `endTs` — unix timestamp filters
+- Response: `{ "history": [{ "t": <unix_ts>, "p": <float_price> }, ...] }`
+
+## Data model gotchas
+
+- **No `resolution` field** — winning outcome is encoded in `outcomePrices`. Winner gets `"1"`, losers get `"0"`. Must be derived (see `_derive_resolution` in ingestion).
+- `outcomes` and `outcomePrices` may be JSON strings or native arrays — always handle both.
+- `clobTokenIds` may also be a JSON string — parse before indexing.
+- Price history tracks the **first outcome** (usually "Yes"). All scoring math must be anchored on this.
+- Markets are nested inside events. One event can have many markets (e.g., "2024 Presidential Election" has a market per candidate).
+- Pagination: max 100 per page via `limit`/`offset`.
