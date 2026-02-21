@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS markets (
     id              TEXT PRIMARY KEY,
     event_id        TEXT REFERENCES events(id),
     question        TEXT NOT NULL,
+    description     TEXT DEFAULT '',
     outcomes        JSONB NOT NULL,
     outcome_prices  JSONB,
     volume          DOUBLE PRECISION DEFAULT 0,

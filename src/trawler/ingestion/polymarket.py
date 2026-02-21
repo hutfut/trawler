@@ -19,8 +19,18 @@ PAGE_SIZE = 100
 PRICE_HISTORY_FIDELITY = 60  # minutes
 VOLUME_FLOOR = 500  # skip markets below this dollar volume
 
-NOVELTY_TAG_IDS = [596, 286, 53, 100, 315]  # Culture, Celebrities, Movies, Music, Entertainment
+NOVELTY_TAG_IDS = [
+    596,     # Culture
+    286,     # Celebrities
+    53,      # Movies
+    100,     # Music
+    315,     # Entertainment
+    1401,    # Tech
+    107,     # Business
+    102846,  # Best of 2025
+]
 SPORTS_TAG_ID = 1
+CRYPTO_PRICES_TAG_ID = 1312
 
 
 def _fetch_closed_events_page(
@@ -93,16 +103,32 @@ def _dedup_events(event_lists: list[tuple[str, list[dict]]]) -> list[dict]:
     return merged
 
 
+def _event_has_tag(event: dict, tag_id: int) -> bool:
+    tags = event.get("tags", [])
+    if isinstance(tags, str):
+        tags = json.loads(tags)
+    return any(
+        (isinstance(t, dict) and str(t.get("id", "")) == str(tag_id))
+        for t in (tags or [])
+    )
+
+
+_TAG_LABELS = {
+    596: "Culture", 286: "Celebrities", 53: "Movies", 100: "Music",
+    315: "Entertainment", 1401: "Tech", 107: "Business", 102846: "Best of 2025",
+}
+
+
 def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
     """Fetch a diverse pool of closed events using multiple strategies.
 
-    Bucket A: competitive ordering — contested markets with dramatic odds
-    Bucket B: high-volume non-sports — broad cultural coverage
-    Bucket C: tag-targeted fetches for novelty-rich categories
+    Bucket A (25%): competitive ordering — contested markets with dramatic odds
+    Bucket B (25%): high-volume, excluding sports and crypto prices
+    Bucket C (50%): tag-targeted fetches for human-appeal categories
     """
-    bucket_a_size = max(limit // 3, 1)
-    bucket_b_size = max(limit // 3, 1)
-    bucket_c_per_tag = max(limit // (3 * len(NOVELTY_TAG_IDS)), 1)
+    bucket_a_size = max(limit // 4, 1)
+    bucket_b_size = max(limit // 4, 1)
+    bucket_c_per_tag = max(limit // (2 * len(NOVELTY_TAG_IDS)), 1)
 
     buckets: list[tuple[str, list[dict]]] = []
 
@@ -111,13 +137,18 @@ def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
         order="competitive", ascending=False,
     )))
 
-    buckets.append(("volume (no sports)", _fetch_closed_events_page(
-        client, limit=bucket_b_size, label="high-volume non-sports",
+    volume_raw = _fetch_closed_events_page(
+        client, limit=bucket_b_size + 50, label="high-volume non-sports",
         order="volume", ascending=False, exclude_tag_id=SPORTS_TAG_ID,
-    )))
+    )
+    volume_filtered = [
+        e for e in volume_raw
+        if not _event_has_tag(e, CRYPTO_PRICES_TAG_ID)
+    ][:bucket_b_size]
+    buckets.append(("volume (no sports/crypto)", volume_filtered))
 
     for tag_id in NOVELTY_TAG_IDS:
-        tag_label = {596: "Culture", 286: "Celebrities", 53: "Movies", 100: "Music", 315: "Entertainment"}.get(tag_id, str(tag_id))
+        tag_label = _TAG_LABELS.get(tag_id, str(tag_id))
         buckets.append((tag_label, _fetch_closed_events_page(
             client, limit=bucket_c_per_tag, label=f"tag: {tag_label}",
             order="volume", ascending=False, tag_id=tag_id,
@@ -206,19 +237,21 @@ def _upsert_market(conn, market: dict, event_id: str) -> None:
 
     conn.execute(
         """
-        INSERT INTO markets (id, event_id, question, outcomes, outcome_prices,
+        INSERT INTO markets (id, event_id, question, description, outcomes, outcome_prices,
                              volume, volume_num, liquidity, closed_time, resolution, asset_ids)
-        VALUES (%(id)s, %(event_id)s, %(question)s, %(outcomes)s, %(outcome_prices)s,
+        VALUES (%(id)s, %(event_id)s, %(question)s, %(description)s, %(outcomes)s, %(outcome_prices)s,
                 %(volume)s, %(volume_num)s, %(liquidity)s, %(closed_time)s, %(resolution)s, %(asset_ids)s)
         ON CONFLICT (id) DO UPDATE SET
             outcome_prices = EXCLUDED.outcome_prices,
             volume = EXCLUDED.volume,
-            resolution = EXCLUDED.resolution
+            resolution = EXCLUDED.resolution,
+            description = EXCLUDED.description
         """,
         {
             "id": str(market.get("id", "")),
             "event_id": event_id,
             "question": market.get("question", market.get("title", "Untitled")),
+            "description": market.get("description", ""),
             "outcomes": json.dumps(outcomes),
             "outcome_prices": json.dumps(outcome_prices),
             "volume": float(market.get("volume", 0) or 0),

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import date
 
 import anthropic
 from rich.console import Console
@@ -17,19 +19,37 @@ about prediction markets. The channel covers resolved prediction markets — \
 surprising outcomes, wild odds swings, and things people actually bet real \
 money on.
 
-Tone: conversational, slightly incredulous, like you're telling a friend \
+CRITICAL FRAMING RULES:
+- The story is the REAL-WORLD EVENT, not the bet. The prediction market is \
+the framing device, not the subject. Lead with what happened in the world, \
+then reveal what the market predicted and how much money was on the line.
+- For deadline-style bets, the interesting angle is that people bet early at \
+long odds — NOT that the odds converged to 100% near the deadline (that's \
+obvious and boring).
+- Use the market description and context provided to ground your narration in \
+real-world details. Don't just talk about odds and money — talk about the \
+actual event, the drama, the controversy, the human story.
+- If the market involves a political event, lean into the political \
+significance and controversy, not just the betting mechanics.
+
+TEMPORAL AWARENESS:
+- Today's date is {today}. You will be given the date each market resolved.
+- Frame events with appropriate temporal distance. Something that resolved a \
+year ago should sound like a retrospective, not breaking news.
+- Never make past events sound like they just happened.
+
+TONE: conversational, slightly incredulous, like you're telling a friend \
 something unbelievable. Not overly formal, not cringe. Think "Daily Dose of \
 Internet" energy — calm but hooked.
 
-Rules:
+STRUCTURE RULES:
 - Each segment is 10-20 seconds when read aloud (~30-60 words).
-- Start each segment with a hook that makes the viewer want to keep watching.
-- Reference the actual odds movements when they're dramatic.
-- End each segment with the outcome — don't bury the lede, but build a beat \
-  of tension first.
-- Never give financial advice or encourage betting. Frame everything as \
-  "look at this interesting thing that happened."
-- Do NOT use hashtags, emojis, or platform-specific jargon in the script itself."""
+- Start each segment with a hook about the real-world event, NOT about the bet.
+- The intro MUST be unique and specific — reference the most attention-grabbing \
+market in the batch. NEVER use generic openers like "people bet millions on \
+wild things."
+- Never give financial advice or encourage betting.
+- Do NOT use hashtags, emojis, or platform-specific jargon in the script."""
 
 COMPILATION_USER_PROMPT = """\
 Generate a compilation narration script for a short-form video. The video will \
@@ -40,9 +60,10 @@ Here are the markets:
 {markets_block}
 
 Write:
-1. A 1-sentence intro hook for the overall video (something like "People bet \
-real money on some wild things — here's what happened this week")
-2. One narration segment per market (30-60 words each)
+1. A 1-sentence intro hook — specific to the most compelling market in this \
+batch, NOT a generic opener
+2. One narration segment per market (30-60 words each) — lead with the \
+real-world story, then the market angle
 3. A 1-sentence outro/call-to-action (follow for more, etc.)
 
 Return your response as JSON with this structure:
@@ -75,32 +96,59 @@ def _format_market_block(market: dict, history: list[dict], score: dict) -> str:
 
     volume_str = f"${market.get('volume', 0):,.0f}" if market.get("volume") else "unknown"
 
+    description = market.get("description", "") or ""
+    if len(description) > 300:
+        description = description[:300] + "…"
+
     lines = [
         f"Market ID: {market['id']}",
+        f"Event: {market.get('event_title', '')}",
         f"Question: {market['question']}",
         f"Outcomes: {', '.join(outcomes)}",
         f"Resolution: {market.get('resolution', 'unknown')}",
+        f"Resolved on: {market.get('closed_time', 'unknown')}",
         f"Volume: {volume_str}",
     ]
+    if description:
+        lines.append(f"Context: {description}")
     if price_summary:
         lines.append(price_summary)
-    lines.append(f"Surprise score: {score.get('surprise', 0):.2f}/1.0")
-    lines.append(f"Narrative arc score: {score.get('narrative_arc', 0):.2f}/1.0")
 
     return "\n".join(lines)
 
 
+def _normalize_question(q: str) -> str:
+    """Strip numbers, dates, and punctuation to cluster near-duplicate questions."""
+    q = q.lower()
+    q = re.sub(r"\d[\d,.\-/]*", "", q)
+    q = re.sub(r"[^a-z\s]", "", q)
+    return re.sub(r"\s+", " ", q).strip()
+
+
+def _semantic_dedup(markets: list[dict]) -> list[dict]:
+    """Keep only the highest-composite market per normalized question cluster."""
+    clusters: dict[str, dict] = {}
+    for m in markets:
+        key = _normalize_question(m["question"])
+        if key not in clusters or m.get("composite", 0) > clusters[key].get("composite", 0):
+            clusters[key] = m
+    return sorted(clusters.values(), key=lambda m: m.get("composite", 0), reverse=True)
+
+
 def _load_top_markets(conn, top_n: int) -> list[dict]:
     """Load top-scored markets, one per event, filtering out boring ones."""
-    return conn.execute(
+    pool_size = top_n * 3
+    rows = conn.execute(
         """
         SELECT * FROM (
             SELECT DISTINCT ON (m.event_id)
-                   m.*, s.surprise, s.narrative_arc, s.absurdity,
+                   m.*, e.title AS event_title,
+                   s.surprise, s.narrative_arc, s.absurdity,
                    s.volume_score, s.significance, s.shareability,
                    s.humor, s.relatability, s.controversy,
                    s.wtf_factor, s.composite
             FROM markets m
+            JOIN events e ON m.event_id = e.id
             JOIN scores s ON m.id = s.market_id
             WHERE m.volume >= 500
               AND (s.narrative_arc > 0.02 OR s.surprise > 0.5
@@ -111,8 +159,11 @@ def _load_top_markets(conn, top_n: int) -> list[dict]:
         ORDER BY composite DESC
         LIMIT %s
         """,
-        (top_n,),
+        (pool_size,),
     ).fetchall()
+
+    deduped = _semantic_dedup(rows)
+    return deduped[:top_n]
 
 
 def _load_price_history(conn, market_id: str) -> list[dict]:
@@ -151,7 +202,7 @@ def _generate_compilation_script(
     resp = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=2000,
-        system=COMPILATION_SYSTEM_PROMPT,
+        system=COMPILATION_SYSTEM_PROMPT.format(today=date.today().isoformat()),
         messages=[
             {
                 "role": "user",

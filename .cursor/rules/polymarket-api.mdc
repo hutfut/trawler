@@ -30,9 +30,11 @@ Key params for `/events`:
 **Sports**: `GET /sports` returns sports-specific tags and metadata.
 
 Key tag IDs for ingestion:
-- Sports: `1` (excluded from volume bucket to avoid repetitive sports spreads)
-- Culture: `596`, Celebrities: `286`, Movies: `53`, Music: `100`, Entertainment: `315`
+- Sports: `1` (excluded from volume bucket)
+- Crypto Prices: `1312` (excluded from volume bucket — repetitive BTC/ETH targets)
+- Human-appeal tags (bucket C, 50% of budget): Culture `596`, Celebrities `286`, Movies `53`, Music `100`, Entertainment `315`, Tech `1401`, Business `107`, Best of 2025 `102846`
 - `order=competitive` surfaces contested/dramatic markets — best for novelty
+- Market objects have a `description` field with resolution criteria and real-world context — store and use for script generation
 
 ## CLOB API (price history)
 
