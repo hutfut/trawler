@@ -1,0 +1,17 @@
+---
+description: Python code conventions for the Trawler pipeline
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python conventions
+
+- Use `from __future__ import annotations` in every module
+- Type hints on all function signatures
+- JSON fields from Polymarket APIs may arrive as strings or native types — always handle both (see `_parse_json_field` in ingestion)
+- Polymarket has no `resolution` field — resolution is derived from `outcomePrices` (winner gets price "1")
+- LLM responses may be wrapped in markdown fences or contain preamble text — always strip fences and extract JSON with `{`/`}` finding before parsing
+- Scoring signals return floats in [0, 1] range
+- Use Rich for all CLI output (progress bars, tables, panels) — no bare `print()`
+- DB access via `get_conn()` context manager from `trawler.db`
+- Commit after each record during long-running operations (scoring) for interrupt safety

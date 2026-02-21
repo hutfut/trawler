@@ -1,0 +1,24 @@
+---
+description: Virality scoring system design and weight tuning
+globs: "src/trawler/scoring/**"
+alwaysApply: false
+---
+
+# Scoring system
+
+Six signals, each normalized to [0, 1], combined with configurable weights:
+
+| Signal | Weight | Source |
+|--------|--------|--------|
+| Surprise | 0.25 | Math — gap between prevailing odds and actual resolution |
+| Narrative arc | 0.20 | Math — volatility, reversals, max swing in price history |
+| Absurdity | 0.30 | LLM (Haiku 4.5) — "would this make someone stop scrolling?" |
+| Volume | 0.05 | Math — sigmoid-capped so mega-markets don't dominate |
+| Significance | 0.10 | LLM (Haiku 4.5) — does this relate to a major world event? |
+| Topical | 0.10 | Stubbed for V1 — future: cross-ref with social/news signals |
+
+Absurdity is weighted highest because the target content leans toward funny/surprising/absurd markets.
+
+Volume uses a sigmoid centered on the dataset median — $100K and $1B are NOT 10,000x apart in score. This prevents boring high-volume markets from dominating.
+
+LLM scoring uses a single combined prompt (absurdity + significance in one call) to minimize API costs. Falls back to keyword heuristics on error.

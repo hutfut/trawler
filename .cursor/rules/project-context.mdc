@@ -1,0 +1,40 @@
+---
+description: Core project context and conventions for Trawler
+alwaysApply: true
+---
+
+# Trawler
+
+Trawler is a retrospective prediction market content pipeline. It ingests resolved prediction market data (currently Polymarket), scores markets for virality, and generates short-form video narration scripts.
+
+## What this project does
+
+- Pulls resolved markets and their odds history from prediction market APIs
+- Scores them on surprise, narrative arc, absurdity, volume, significance, and topical relevance
+- Generates compilation-style narration scripts for TikTok/YouTube Shorts via LLM
+- Human reviews scripts before any content is published
+
+The focus is **retrospective content** — markets that already resolved. We cherry-pick the most surprising, dramatic, or absurd outcomes. Live/trending market coverage is a future expansion.
+
+## Architecture
+
+Python CLI (`trawler`) with four pipeline stages:
+
+1. `trawler ingest` — Polymarket Gamma API (events/markets) + CLOB API (price history) → Postgres
+2. `trawler score` — weighted composite score from 6 signals (some LLM-powered, some pure math)
+3. `trawler generate` — LLM writes compilation narration scripts from top-scored markets
+4. `trawler review` — rich terminal display or markdown export for human judgment
+
+## Key conventions
+
+- Python 3.12, installed as editable package via `pyproject.toml`
+- Postgres for all persistent data (Docker Compose for local dev)
+- Anthropic Claude (Haiku 4.5) for LLM scoring and script generation — use the cheapest model that gets the job done
+- CLI built with Typer, output with Rich
+- All pipeline commands are idempotent — safe to re-run without duplicating data
+- Per-record commits during scoring so interrupted runs don't lose progress
+- Config via `.env` / environment variables (never commit `.env`)
+
+## Content framing
+
+Scripts must NEVER give financial advice or encourage betting. Frame everything as entertainment/retrospective: "look at this interesting thing that happened." This is a legal/compliance requirement.

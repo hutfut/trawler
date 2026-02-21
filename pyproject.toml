@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trawler"
+version = "0.1.0"
+description = "Retrospective prediction market content pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "psycopg[binary]>=3.1",
+    "anthropic>=0.40",
+    "typer>=0.12",
+    "python-dotenv>=1.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+trawler = "trawler.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]

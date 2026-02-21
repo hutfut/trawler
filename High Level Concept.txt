@@ -1,0 +1,251 @@
+== WHY THIS EXISTS ==
+
+Prediction markets are at peak popularity.
+Millions of users across a wide variety of markets:
+  - Sports betting (largest)
+  - Political events
+  - World events
+  - Just about anything else
+Beyond that, the concept of prediction markets is familiar to an even larger audience due to mainstream exposure.
+
+Short form video is the most consumed medium by watch hour.
+Viral, attention grabbing content does not need to be hand made thanks to modern tooling.
+Many popular and monetarily successful channels release generated content.
+While there is a subset of users who will not watch AI generated content, the vast majority do not care as long as the video is interesting enough:
+    - Covering topics the user cares about
+    - The most obvious AI tells are masked
+    - Content remains factual
+    - Engaging presentation (snappy subtitles, interesting voiceover, eye catching visuals)
+
+The marriage of the two _could_ result in content that hooks users who are aware of prediction markets.
+
+Nobody is doing this well yet. Prediction market content on short form platforms is mostly
+manual creators reacting to screenshots, or low-effort bot accounts. There is no automated,
+quality-controlled pipeline turning market data into polished video.
+
+
+== CORE INSIGHT: RETROSPECTIVE FIRST ==
+
+The most reliably interesting content comes from markets that have already resolved.
+You already know the ending — the job is finding the stories worth telling.
+
+Why this beats a live-first approach:
+  - Higher hit rate: you can cherry-pick outcomes that are genuinely surprising, dramatic,
+    or absurd. No guessing whether something *might* become interesting.
+  - No real-time infrastructure: no polling, no race against the clock, no stale content
+    risk. The pipeline can run as a batch job on whatever schedule makes sense.
+  - Evergreen backlog: resolved markets don't expire. A wild outcome from 6 months ago
+    is just as watchable as one from yesterday if the viewer hasn't seen it before.
+    "Did you know people bet on this?" works regardless of when it happened.
+  - Content buffer: videos can be stockpiled and scheduled. Bad production day? Pull from
+    the backlog. No pressure to ship something half-baked because the news cycle demands it.
+  - Simpler V1: the entire real-time ingestion layer (polling, webhooks, staleness checks,
+    race conditions) is deferred. V1 is just: pull resolved data, score it, generate video.
+
+Live / trending market coverage is a natural expansion once the retrospective pipeline is
+solid, but it is NOT required to launch or to produce consistently good content.
+
+
+== WHAT SUCCESS LOOKS LIKE ==
+
+V1 goal: a working pipeline that can produce 1-3 compilation-style short form videos per day
+from resolved prediction market data, with minimal human effort (review + approve only).
+
+Monetization path: platform ad revenue (YouTube Shorts, TikTok Creator Fund). This is a
+content brand first, not a SaaS. Tooling can be productized later if the pipeline proves out.
+
+Key metrics for V1:
+  - Content quality: what % of generated videos pass human review without revision?
+  - Publishing cadence: can we sustain 1-3 videos/day without running dry on material?
+  - Engagement: views, watch-through rate, shares on published content.
+  - Human time per video: target <5 minutes of review per published video.
+
+
+== DATA SOURCES ==
+
+Primary targets (all retain resolved market data accessible via API):
+  - Polymarket — largest crypto prediction market, public API, wide topic coverage.
+    Rich historical data with full odds history per market.
+  - Kalshi — US-regulated, REST API, strong on politics/economics/events.
+  - PredictIt — smaller but established, API available, political focus.
+
+Secondary / enrichment:
+  - Odds API (oddsapi.com) — aggregates sportsbook odds, useful for sports-adjacent markets.
+  - News/context APIs — for adding background to resolved markets. When a market resolved
+    because of a specific event, the video needs to explain what happened, not just show
+    the odds chart. News API, Wikipedia recent events, etc.
+
+Historical depth:
+  - Start with the last 6-12 months of resolved markets across all platforms.
+  - Older markets can be pulled in later, but will need more contextual enrichment
+    since viewers may not remember the underlying event.
+  - Build a local database of resolved markets so scoring and content selection can
+    run without hitting external APIs repeatedly.
+
+Constraints to track:
+  - Rate limits per platform (Polymarket is generous, Kalshi is stricter)
+  - ToS compliance — use official APIs, attribute properly
+  - Pagination / bulk export — pulling historical data efficiently
+
+
+== VIRALITY SCORING ==
+
+The scoring model determines what content gets made. Since we're focused on resolved markets,
+the signals are all backward-looking — we know exactly what happened and can score with
+full information.
+
+  1. Surprise factor — how unexpected was the outcome? A market that sat at 5% for weeks
+     then resolved YES is inherently interesting. Score based on the gap between the
+     prevailing odds and the actual resolution. Bigger upset = higher score.
+
+  2. Narrative arc — did the odds tell a story? Markets that swung wildly before resolving
+     are more compelling than ones that flatlined at 90% and resolved YES. The shape of
+     the odds history curve matters: reversals, cliff drops, last-minute swings.
+     The odds chart IS the visual content — a boring chart means a boring video.
+
+  3. Absurdity / novelty — unusual or funny markets inherently attract clicks.
+     "People actually bet $2M on whether a celebrity would dye their hair" is content
+     regardless of the outcome. Could use an LLM classifier to rate "would this market
+     title make someone stop scrolling?" on a 1-10 scale.
+
+  4. Total volume — high-volume resolved markets had a lot of people with skin in the
+     game. That makes the outcome more dramatic regardless of what it was.
+
+  5. Historical significance — did the market track a major real-world event? Resolved
+     markets tied to elections, disasters, scientific breakthroughs, etc. carry built-in
+     narrative weight even months later.
+
+  6. Topical relevance — is the resolved market's subject still in the public conversation?
+     A 3-month-old market about a person who is trending today gets a boost.
+     Cross-reference against current social/news signals.
+
+V1 approach: start with a simple weighted formula across these signals. Tune weights manually
+based on what actually performs well once content is live. ML-based scoring is a V2 concern.
+
+
+== CONTENT FORMATS ==
+
+Format 1: Retrospective Compilation (V1 target)
+  "Markets you missed" / "You won't believe people bet on this" / "Wildest prediction
+  market outcomes this month."
+  Structure: 3-5 resolved market highlights per video, 10-20 seconds each, ~60-90s total.
+  Each segment: what the market was, how the odds moved over time, what actually happened.
+  The odds history chart is the visual centerpiece — it tells the story on its own.
+  Can be batch-produced, scheduled, and stockpiled.
+
+Format 2: Themed Compilations (V1 variant)
+  Same structure but grouped by theme: "Wildest political bets," "Markets that flipped
+  at the last second," "Biggest upsets," "Weirdest things people bet on."
+  Themes help with discoverability and let the algorithm categorize the content.
+
+Format 3: Standalone Story (stretch goal)
+  A single resolved market that warrants deeper context. Think short-form video essay.
+  "The time the internet bet $10M on whether [X] would happen — and lost."
+  Requires: narrative scripting, more complex visual sequencing, possibly pulling in
+  news clips or additional context. Significantly harder to automate.
+
+Future: Live / Trending Content (expansion)
+  Real-time coverage of markets as they move. Requires polling infrastructure, staleness
+  management, faster pipeline turnaround. Layer this in once the retrospective pipeline
+  is proven and the content brand has an audience.
+
+
+== GENERATION PIPELINE ==
+
+Stage 1: Data Ingestion & Scoring
+  Input: resolved market data from platform APIs
+  Process: pull resolved markets, compute virality score, rank and filter
+  Output: ranked list of candidate markets for content
+  Cadence: daily batch job (or on-demand)
+
+Stage 2: Script Generation
+  Input: top-scored markets + enrichment context (what actually happened, news context)
+  Process: LLM generates a short narration script per market segment, plus an overall
+  intro/outro for the compilation
+  Output: timestamped script with segment boundaries
+  Tools: OpenAI / Anthropic API
+
+Stage 3: Voiceover
+  Input: script text
+  Process: TTS generation with a consistent "channel voice"
+  Output: audio file per segment
+  Tools: ElevenLabs (best quality/cost ratio for short form)
+
+Stage 4: Visual Assembly
+  Input: script + audio + market data (including odds history for chart animation)
+  Process: programmatic video assembly — text overlays, animated odds charts, background
+  footage/imagery, animated subtitles synced to voiceover
+  Output: raw video file
+  Tools: Remotion (React-based video) or FFmpeg pipeline with templated compositions.
+  V1 should lean heavily on templated motion graphics over AI-generated imagery.
+  Templates are faster, more consistent, and avoid the uncanny valley.
+
+Stage 5: Human Review
+  Input: rendered video + script + source data
+  Process: reviewer checks factual accuracy, tone, visual quality
+  Output: approved / rejected / sent back for revision
+  Tools: simple web dashboard (could be as basic as a queue with approve/reject buttons)
+
+Stage 6: Publishing
+  Input: approved video + metadata (title, description, tags, thumbnail)
+  Process: upload to target platforms via API
+  Output: published video URLs
+  Tools: YouTube Data API, TikTok Content Posting API, Instagram Graph API
+  Note: each platform has its own upload specs, aspect ratios, and metadata requirements.
+
+
+== HUMAN-IN-THE-LOOP ==
+
+Review checkpoints:
+  1. Post-scoring: does the selected content actually make sense to cover?
+     (lightweight — could be a daily digest email with approve/skip per item)
+  2. Post-generation: is the finished video good enough to publish?
+     (heavier — requires watching the video, checking facts)
+
+Since retrospective content isn't time-sensitive, the reviewer doesn't need to be
+on-call. Review can happen in a single daily batch — check the queue, approve/reject,
+move on. This makes the human cost much more predictable and manageable.
+
+Target: <5 minutes of human time per published video.
+
+
+== LEGAL / COMPLIANCE ==
+
+Things to get right early:
+  - Data source ToS: use official APIs where available, attribute properly, don't
+    redistribute raw data in ways that violate terms.
+  - Platform content policies: TikTok/YouTube/Instagram all have rules about financial
+    content. Prediction market coverage likely falls in a gray area — avoid anything
+    that looks like financial advice or gambling promotion. Framing matters: "look at
+    this interesting thing that happened" vs. "you should bet on X." Retrospective
+    framing naturally helps here — we're reporting on what happened, not telling
+    anyone to do anything.
+  - Disclosure: if any content could be perceived as promotional, disclose. Better
+    safe than demonetized.
+  - Copyright: background footage/music must be licensed or royalty-free.
+
+
+== TECH STACK (initial thoughts) ==
+
+  - Language: Python (data pipeline, scoring, LLM integration) + TypeScript (review dashboard, Remotion video)
+  - Queue/orchestration: simple job queue (Redis + BullMQ or similar), not a full workflow engine for V1.
+    No real-time requirements since everything is batch-oriented.
+  - Storage: S3-compatible object store for generated assets (audio, video, thumbnails)
+  - Database: Postgres for resolved market data, scores, content status tracking
+  - Deployment: containerized, could run on a single box for V1
+  - CI: GitHub Actions for basic pipeline testing
+
+
+== OPEN QUESTIONS ==
+
+  - How far back should we go for historical markets? Last 6 months? Last year? All time?
+    Older markets need more context for viewers who may not remember the event.
+  - Should the channel have a "personality" / brand voice from day one, or iterate into one?
+  - What's the minimum viable review dashboard, and can we skip it for V1 in favor of
+    something simpler (e.g., Slack bot with approve/reject buttons)?
+  - How many videos per day is sustainable before quality drops or platforms flag as spam?
+  - What's the best way to source contextual info for resolved markets? Some outcomes are
+    self-explanatory ("Did X win the election? Yes.") but others need a sentence or two
+    of background. Can the LLM fill this in reliably, or do we need a news API?
+  - When do we layer in live content? What signals tell us the retrospective pipeline is
+    mature enough to expand?
