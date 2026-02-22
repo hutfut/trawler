@@ -53,11 +53,17 @@ wagered real money on this? The absurdity of the bet's existence IS the story.
 - If a market says "Odds data: Not available," ignore odds entirely. Focus on \
 the story, the people, and the cultural context.
 
-VOLUME:
-- Dollar volume is a tool, not a requirement. ONLY mention the dollar amount \
-when it is surprising relative to the topic. "$300K on a reality TV punch" is \
-gold. "$43K on Sam Altman TIME Person of the Year" adds nothing. If the \
-volume is unremarkable for the topic, skip it entirely.
+DOLLAR AMOUNTS — HARD LIMIT:
+- At most ONE segment per script may open with a dollar figure as the first \
+sentence. The rest MUST open differently.
+- NEVER follow a dollar amount with "That's what people bet on..." or \
+"That's what people wagered on..." — this pattern is BANNED. If you use a \
+number, land the context immediately in the same sentence: \
+"Eighty million dollars on whether Eleven dies in Stranger Things" — NOT \
+"Eighty million dollars. That's what people bet on a character's survival."
+- If the volume is under $1M, do NOT lead with it. Lead with the story.
+- If the dollar amount is unremarkable for the topic, skip it entirely. \
+"$43K on Sam Altman TIME Person of the Year" adds nothing.
 
 CONTEXT:
 - Use the market description, event title, and context provided. If there was \
@@ -80,14 +86,17 @@ a number-first hook ("Sixteen million dollars..."), a person-first hook \
 segments open the same way, rewrite one.
 
 HARD RULES:
-- Each segment: 50-80 words (~15-20 seconds spoken). The video should run \
-60-90 seconds total.
+- Each segment: 50-80 words. This is NOT a suggestion — count them. If a \
+segment exceeds 80 words, cut it down. Brevity is impact.
 - NO intro. Jump straight into the first market.
 - NO outro. (We add one separately.)
 - Every segment MUST end on a quotable line — an observation, a zinger, an \
 absurd comparison, or a callback. NEVER end a segment with "the market \
 resolved," "the bet died," "nothing happened," or any variant of "and then \
 it was over." The last sentence is the screenshot moment.
+- If your angle is "nothing happened" or "the outcome was obvious," you've \
+chosen the wrong angle. Every market is here because something about it is \
+wild — find that angle or the segment fails.
 - NEVER be congratulatory to winners or admonishing to losers. No "bettors \
 lost big" or "the smart money won." Focus on the story, not scorekeeping.
 - NEVER repeat phrasing across segments. Vary structure and vocabulary.
@@ -185,11 +194,12 @@ _ENTITY_PATTERNS = re.compile(
     r"elon musk|zuckerberg|bezos|gates|altman|"
     r"kanye|kardashian|taylor swift|billie eilish|bad bunny|drake|"
     r"beyonce|rihanna|travis scott|doja cat|"
-    r"jake paul|mike tyson|logan paul|messi|lebron|mahomes|"
-    r"tesla|spacex|openai|chatgpt|tiktok|"
+    r"jake paul|mike tyson|logan paul|messi|lebron|mahomes|ohtani|"
+    r"tesla|spacex|openai|chatgpt|tiktok|boeing|"
     r"pope leo|pope francis|"
     r"stranger things|super bowl|world cup|"
-    r"epstein|diddy|tiktok ban"
+    r"epstein|diddy|p\.? ?diddy|sean combs|tiktok ban|"
+    r"mrbeast|mr\\.? ?beast|gene hackman|nuclear"
     r")\b",
     re.IGNORECASE,
 )
@@ -264,6 +274,13 @@ def _load_top_markets_by_domain(
                 WHERE m.volume >= 500
                   AND s.domain IS NOT NULL
                   AND s.composite >= %s
+                  AND m.resolution IS NOT NULL
+                  AND m.resolution != ''
+                  AND CASE
+                      WHEN s.domain = 'Politics'
+                      THEN (s.humor + s.wtf_factor) / 2 >= 0.55
+                      ELSE TRUE
+                  END
                 ORDER BY m.event_id, s.composite DESC
             ) event_deduped
         ) ranked
@@ -391,7 +408,7 @@ def run_generation(
         for domain, markets in by_domain.items():
             for i in range(0, len(markets), group_size):
                 group = markets[i : i + group_size]
-                if len(group) >= 2:
+                if len(group) >= 3:
                     all_groups.append((domain, group))
 
         generated = 0

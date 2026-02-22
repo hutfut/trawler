@@ -23,15 +23,10 @@ MAX_MARKETS_PER_EVENT = 3
 
 NOVELTY_TAG_IDS = [
     286,     # Celebrities
-    53,      # Movies
     100,     # Music
-    315,     # Entertainment
     596,     # Culture
-    18,      # Awards (Oscars, Grammys)
-    439,     # AI
-    102823,  # Google Search
-    1597,    # Global Elections
-    101588,  # 2025 Predictions
+    146,     # YouTube
+    530,     # TikTok
 ]
 SPORTS_TAG_ID = 1
 CRYPTO_TAG_IDS = [21, 744, 1312]  # Crypto, cryptocurrency, Crypto Prices
@@ -130,9 +125,8 @@ def _event_has_tag(event: dict, tag_id: int) -> bool:
 
 
 _TAG_LABELS = {
-    286: "Celebrities", 53: "Movies", 100: "Music", 315: "Entertainment",
-    596: "Culture", 18: "Awards", 439: "AI", 102823: "Google Search",
-    1597: "Global Elections", 101588: "2025 Predictions",
+    286: "Celebrities", 100: "Music", 596: "Culture",
+    146: "YouTube", 530: "TikTok",
 }
 
 

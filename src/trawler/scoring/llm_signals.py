@@ -41,19 +41,25 @@ Dimensions:
 1. ABSURDITY: "Wait, people actually bet on that?" — relative to the domain.
 2. SIGNIFICANCE: How major is this within its domain? A mid-tier election \
 market is less significant than a landmark ruling, even though both are Politics.
-3. SHAREABILITY: Would someone send this to a friend as interesting content? \
-IMPORTANT: If the outcome is common knowledge (e.g. everyone knows who won \
-the election, who dropped out, who the VP is), shareability is LOW — there's \
-no surprise or novelty left to share. High shareability means the market \
-reveals something people DON'T already know, or its mere existence is the story.
-4. HUMOR: Genuinely funny for this domain's audience — not just surprising.
+3. SHAREABILITY: Would someone screenshot this and send it to their group chat? \
+IMPORTANT: If the outcome is common knowledge (everyone knows who won the \
+election), shareability is LOW. High shareability means the market reveals \
+something people DON'T already know, or the bet's mere existence is the story. \
+"Interesting news" is NOT shareable — "I can't believe people bet money on THIS" is.
+4. HUMOR: Would a 24-year-old scrolling their phone at 10pm actually laugh? \
+Not "mildly amusing" — genuinely funny. A nuclear detonation market is not funny. \
+A CEO's dating life as a prediction market IS funny.
 5. RELATABILITY: Does a broad audience within this domain find the MARKET \
 interesting, not just the topic? A market about a well-known event where the \
 outcome is obvious in hindsight scores LOW — the audience already knows what \
 happened. A market that surfaces something unexpected or niche-but-fascinating \
 scores HIGH.
 6. CONTROVERSY: Sparks debate among people who follow this domain.
-7. WTF_FACTOR: "I can't believe this exists" energy, calibrated to the domain.
+7. WTF_FACTOR: "I can't believe someone made this a BET" energy. This is about \
+the absurdity of the WAGER, not the seriousness of the topic. A nuclear \
+detonation market is significant, not WTF — anyone would track geopolitical \
+risk. A market on whether a CEO gets a girlfriend by August IS WTF. Score the \
+bet, not the headline.
 
 Respond with ONLY a JSON array — one object per market, in order:
 [{{"id": 1, "domain": "<domain>", "absurdity": <int>, "significance": <int>, \

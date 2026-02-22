@@ -22,12 +22,12 @@ Eleven signals, each normalized to [0, 1], combined with configurable weights.
 | Signal | Weight | What it measures |
 |--------|--------|------------------|
 | Shareability | 0.20 | Would someone send this to a friend unprompted? |
-| Humor | 0.15 | Genuinely funny, not just surprising |
+| Humor | 0.18 | Genuinely funny, not just surprising |
 | Absurdity | 0.10 | "Wait, people actually bet on that?" |
-| Relatability | 0.07 | Broad audience appeal vs niche |
+| WTF factor | 0.10 | Absurdity of the WAGER, not the topic — "I can't believe someone made this a bet" |
 | Controversy | 0.08 | Sparks debate or strong opinions |
-| WTF factor | 0.10 | Pure "I can't believe this exists" energy |
-| Significance | 0.03 | Relates to major real-world events |
+| Relatability | 0.06 | Broad audience appeal vs niche |
+| Significance | 0.01 | Relates to major real-world events (low weight — importance != engagement) |
 
 ## Domain classification
 
@@ -39,6 +39,10 @@ All 7 LLM dimensions are scored RELATIVE TO the domain. A 7/10 humor in Politics
 LLM scoring uses Haiku 4.5 with batches of 6 markets per API call. The prompt sends question, resolution, and volume for each market. Response includes domain + 7 dimension scores per market. Falls back to keyword heuristics (including keyword-based domain guess) on batch failure.
 
 Volume uses a sigmoid centered on the dataset median — $100K and $1B are NOT 10,000x apart in score.
+
+## Entertainment gate
+
+Politics markets must pass `(humor + wtf_factor) / 2 >= 0.55` to enter scripts. This filters serious geopolitical markets (Iran strikes, Putin coup) that score well on significance but bore the target audience.
 
 ## Adaptive composite for deadline bets
 

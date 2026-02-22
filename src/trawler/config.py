@@ -15,12 +15,12 @@ class ScoringWeights:
     volume: float = 0.02
     volume_surprise: float = 0.05
     absurdity: float = 0.10
-    significance: float = 0.03
+    significance: float = 0.01
     shareability: float = 0.20
-    humor: float = 0.15
-    relatability: float = 0.10
+    humor: float = 0.18
+    relatability: float = 0.06
     controversy: float = 0.08
-    wtf_factor: float = 0.07
+    wtf_factor: float = 0.10
 
     @classmethod
     def from_env(cls) -> ScoringWeights:
