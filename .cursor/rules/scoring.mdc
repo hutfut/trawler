@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Scoring system
 
-Ten signals, each normalized to [0, 1], combined with configurable weights.
+Eleven signals, each normalized to [0, 1], combined with configurable weights.
 
 ## Math-derived signals (no LLM)
 
@@ -14,7 +14,8 @@ Ten signals, each normalized to [0, 1], combined with configurable weights.
 |--------|--------|--------|
 | Surprise | 0.12 | Gap between prevailing odds and actual resolution |
 | Narrative arc | 0.08 | Volatility, reversals, max swing in price history |
-| Volume | 0.05 | Sigmoid-capped so mega-markets don't dominate |
+| Volume | 0.02 | Sigmoid-capped so mega-markets don't dominate |
+| Volume surprise | 0.05 | `volume_score * mean(absurdity, wtf_factor, humor)` — boosts markets where serious money meets absurd topics |
 
 ## LLM-derived signals (7 dimensions, batched)
 
@@ -23,10 +24,10 @@ Ten signals, each normalized to [0, 1], combined with configurable weights.
 | Shareability | 0.20 | Would someone send this to a friend unprompted? |
 | Humor | 0.15 | Genuinely funny, not just surprising |
 | Absurdity | 0.10 | "Wait, people actually bet on that?" |
-| Relatability | 0.10 | Broad audience appeal vs niche |
+| Relatability | 0.07 | Broad audience appeal vs niche |
 | Controversy | 0.08 | Sparks debate or strong opinions |
-| WTF factor | 0.07 | Pure "I can't believe this exists" energy |
-| Significance | 0.05 | Relates to major real-world events |
+| WTF factor | 0.10 | Pure "I can't believe this exists" energy |
+| Significance | 0.03 | Relates to major real-world events |
 
 ## Domain classification
 

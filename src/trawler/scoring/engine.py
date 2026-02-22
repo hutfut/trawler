@@ -57,18 +57,19 @@ def _upsert_score(
     conn.execute(
         """
         INSERT INTO scores (market_id, surprise, narrative_arc, absurdity,
-                            volume_score, significance, shareability, humor,
-                            relatability, controversy, wtf_factor, domain,
-                            composite)
+                            volume_score, volume_surprise, significance,
+                            shareability, humor, relatability, controversy,
+                            wtf_factor, domain, composite)
         VALUES (%(market_id)s, %(surprise)s, %(narrative_arc)s, %(absurdity)s,
-                %(volume_score)s, %(significance)s, %(shareability)s, %(humor)s,
-                %(relatability)s, %(controversy)s, %(wtf_factor)s, %(domain)s,
-                %(composite)s)
+                %(volume_score)s, %(volume_surprise)s, %(significance)s,
+                %(shareability)s, %(humor)s, %(relatability)s, %(controversy)s,
+                %(wtf_factor)s, %(domain)s, %(composite)s)
         ON CONFLICT (market_id) DO UPDATE SET
             surprise = EXCLUDED.surprise,
             narrative_arc = EXCLUDED.narrative_arc,
             absurdity = EXCLUDED.absurdity,
             volume_score = EXCLUDED.volume_score,
+            volume_surprise = EXCLUDED.volume_surprise,
             significance = EXCLUDED.significance,
             shareability = EXCLUDED.shareability,
             humor = EXCLUDED.humor,
@@ -85,6 +86,7 @@ def _upsert_score(
             "narrative_arc": components["narrative_arc"],
             "absurdity": components["absurdity"],
             "volume_score": components["volume_score"],
+            "volume_surprise": components["volume_surprise"],
             "significance": components["significance"],
             "shareability": components["shareability"],
             "humor": components["humor"],
@@ -119,9 +121,8 @@ _DOMAIN_KEYWORDS: dict[str, list[str]] = {
     ],
     "Tech/Business": [
         "tesla", "spacex", "apple", "google", "amazon", "microsoft", "ai",
-        "bitcoin", "crypto", "ethereum", "blockchain", "nft", "token",
         "stock", "ipo", "startup", "elon musk", "self-driving", "fsd",
-        "openai", "chatgpt", "satoshi", "market cap", "valuation",
+        "openai", "chatgpt", "valuation", "boeing", "nvidia", "meta",
     ],
 }
 
@@ -160,6 +161,7 @@ def _compute_composite(weights, components: dict) -> float:
         weights.surprise * components["surprise"]
         + weights.narrative_arc * components["narrative_arc"]
         + weights.volume * components["volume_score"]
+        + weights.volume_surprise * components["volume_surprise"]
         + weights.absurdity * components["absurdity"]
         + weights.significance * components["significance"]
         + weights.shareability * components["shareability"]
@@ -271,9 +273,17 @@ def run_scoring(rescore: bool = False) -> None:
 
                     domain = str(llm.get("domain", "Wildcard"))
 
+                    llm_dims = {dim: llm.get(dim, 0.5) for dim in LLM_DIMENSIONS}
+                    vol_s = math_signals[mid]["volume_score"]
+                    weirdness = (
+                        llm_dims.get("absurdity", 0.5)
+                        + llm_dims.get("wtf_factor", 0.5)
+                        + llm_dims.get("humor", 0.5)
+                    ) / 3
                     components = {
                         **math_signals[mid],
-                        **{dim: llm.get(dim, 0.5) for dim in LLM_DIMENSIONS},
+                        "volume_surprise": vol_s * weirdness,
+                        **llm_dims,
                     }
 
                     composite = _compute_composite(weights, components)

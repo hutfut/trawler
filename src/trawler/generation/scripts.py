@@ -22,85 +22,70 @@ DOMAIN_THEMES: dict[str, str] = {
 }
 
 MIN_DOMAIN_SIZE = 3
+MIN_DOMAIN_COMPOSITE = 0.55
+
+STANDARDIZED_OUTRO = "Follow for more."
 
 COMPILATION_SYSTEM_PROMPT = """\
-You write short, punchy narration scripts for TikTok/YouTube Shorts videos \
-about prediction markets. This video's theme is: {domain_theme}.
+You write narration scripts for short-form video (TikTok / YouTube Shorts). \
+The channel covers {domain_theme}. The audience is scrolling at 10pm after \
+dinner — you have ONE SECOND before they swipe. Every sentence must earn \
+the next.
 
-All markets in this batch belong to the same category, so the video should \
-feel cohesive — the audience clicked for {domain_theme}, keep them engaged \
-all the way through.
+VOICE:
+- Full meme-page energy. You are showing a friend something wild on your phone.
+- React to the absurdity. Be opinionated. Say what you actually think.
+- "People bet THREE HUNDRED THOUSAND DOLLARS on whether she would throw a \
+punch on reality TV" — NOT "A prediction market was created for a reality \
+television altercation."
+- If the audience would not know who someone is, explain in one clause: \
+"Ansem — a crypto influencer turned amateur boxer —"
 
-CRITICAL FRAMING RULES:
-- The story is the REAL-WORLD EVENT, not the bet. Lead with what happened, \
-then reveal what the market predicted and how much money was on the line.
-- ALWAYS mention the odds journey. You are given an "Odds range" for each \
-market — use it. Tell the audience where odds started and where they ended. \
-Example: "The market opened at 12% and climbed to 94% before resolving Yes." \
-The odds movement IS the story — it shows what the crowd believed and when \
-they changed their minds.
-- For deadline-style bets, the hook is that people bet early at long odds — \
-NOT that odds converged to 100% near the deadline (that's obvious).
-- Use the market description and context to ground narration in real-world \
-details. If there was a court case, a controversy, an opponent, competing \
-candidates, or other context — mention it. Don't narrate in a vacuum.
-- If the market involves a person, mention who else was in contention or \
-what the stakes were beyond the bet itself.
+ODDS ARE THE STORY:
+- You are given an "Odds range" for each market. ALWAYS use it.
+- "The market opened at 12% and climbed to 94%" shows what the crowd \
+believed and when they flipped. That arc is the hook.
+- For deadline bets, the angle is people betting early at long odds — NOT \
+that odds hit 100% near the deadline (obvious and boring).
 
-WHAT TO AVOID:
-- NEVER be congratulatory to winners or admonishing to losers. Don't say \
-"bettors lost big" or "those who bet early were rewarded." The focus is \
-the MARKET and the STORY, not winners/losers.
-- NEVER repeat the same phrasing across segments. If one segment says "no \
-one thought it would happen," the next segment CANNOT use similar language. \
-Vary your sentence structure and vocabulary across every segment.
-- NEVER use "market resolved Yes/No" as the climax of a segment. That's \
-mechanical. Describe what actually happened in the world.
-- NEVER present well-known outcomes as revelations. If everyone already knows \
-Biden dropped out or who won the election, the angle must be the MARKET \
-DYNAMICS (early odds, who bet what, how the crowd was wrong), not the \
-outcome itself.
+CONTEXT:
+- Use the market description, event title, and context provided. If there was \
+a court case, a rivalry, a controversy, competing candidates — work it in. \
+Do not narrate in a vacuum.
+- If a person is involved, mention who else was in contention or what the \
+real-world stakes were beyond the bet.
+- If the outcome is common knowledge (everyone knows who won the election), \
+the angle is the MARKET DYNAMICS — early odds, crowd psychology, when the \
+money moved — NOT the outcome itself.
 
 TEMPORAL AWARENESS:
-- Today's date is {today}. You will be given the date each market resolved.
-- Frame events with appropriate temporal distance. A year-old event is a \
-retrospective, not breaking news.
+- Today is {today}. Frame past events with appropriate distance.
 
-TONE: conversational, slightly incredulous, like you're telling a friend \
-something unbelievable. Not overly formal, not cringe. Think "Daily Dose of \
-Internet" energy — calm but hooked.
-
-STRUCTURE RULES:
-- Each segment is 10-20 seconds when read aloud (~30-60 words).
-- Start each segment with a hook about the real-world event, NOT about the bet.
-- The intro MUST be unique and specific — reference the most attention-grabbing \
-market in the batch. NEVER use generic openers.
-- Never give financial advice or encourage betting.
-- Do NOT use hashtags, emojis, or platform-specific jargon in the script."""
+HARD RULES:
+- Each segment: 50-80 words (~15-20 seconds spoken). The video should run \
+60-90 seconds total.
+- NO intro. Jump straight into the first market.
+- NO outro. (We add one separately.)
+- NEVER be congratulatory to winners or admonishing to losers. No "bettors \
+lost big" or "the smart money won." Focus on the story, not scorekeeping.
+- NEVER repeat phrasing across segments. Vary structure and vocabulary.
+- NEVER say "the market resolved Yes/No." Describe what happened in the world.
+- No financial advice, no hashtags, no emojis."""
 
 COMPILATION_USER_PROMPT = """\
-Generate a compilation narration script for a short-form video. The video will \
-cover {count} resolved prediction markets.
+Write narration segments for a short-form video covering {count} resolved \
+prediction markets. Jump straight into the first market — no intro, no setup.
 
-Here are the markets:
+Markets:
 
 {markets_block}
 
-Write:
-1. A 1-sentence intro hook — specific to the most compelling market in this \
-batch, NOT a generic opener
-2. One narration segment per market (30-60 words each) — lead with the \
-real-world story, then the market angle
-3. A 1-sentence outro/call-to-action (follow for more, etc.)
-
-Return your response as JSON with this structure:
+Return ONLY a JSON object:
 {{
-  "intro": "...",
   "segments": [
     {{"market_id": "...", "narration": "..."}},
     ...
-  ],
-  "outro": "..."
+  ]
 }}"""
 
 
@@ -166,10 +151,14 @@ _ENTITY_PATTERNS = re.compile(
     r"trump|biden|harris|obama|clinton|pelosi|mcconnell|desantis|pence|"
     r"vance|walz|newsom|rfk|vivek|haley|tucker carlson|bernie|aoc|"
     r"xi jinping|putin|zelenskyy|zelensky|modi|macron|trudeau|netanyahu|"
-    r"elon musk|zuckerberg|bezos|gates|altman|satoshi|"
+    r"starmer|milei|bolsonaro|"
+    r"elon musk|zuckerberg|bezos|gates|altman|"
     r"kanye|kardashian|taylor swift|billie eilish|bad bunny|drake|"
-    r"jake paul|mike tyson|logan paul|messi|lebron|"
-    r"tesla|spacex|openai|chatgpt|bitcoin|ethereum|"
+    r"beyonce|rihanna|travis scott|doja cat|"
+    r"jake paul|mike tyson|logan paul|messi|lebron|mahomes|"
+    r"tesla|spacex|openai|chatgpt|tiktok|"
+    r"pope leo|pope francis|"
+    r"stranger things|super bowl|world cup|"
     r"epstein|diddy|tiktok ban"
     r")\b",
     re.IGNORECASE,
@@ -244,16 +233,14 @@ def _load_top_markets_by_domain(
                 JOIN scores s ON m.id = s.market_id
                 WHERE m.volume >= 500
                   AND s.domain IS NOT NULL
-                  AND (s.narrative_arc > 0.02 OR s.surprise > 0.5
-                       OR s.absurdity > 0.3 OR s.shareability > 0.5
-                       OR s.humor > 0.5 OR s.wtf_factor > 0.5)
+                  AND s.composite >= %s
                 ORDER BY m.event_id, s.composite DESC
             ) event_deduped
         ) ranked
         WHERE domain_rank <= %s
         ORDER BY domain, composite DESC
         """,
-        (pool_per,),
+        (MIN_DOMAIN_COMPOSITE, pool_per),
     ).fetchall()
 
     by_domain: dict[str, list[dict]] = {}
@@ -418,11 +405,12 @@ def run_generation(
                         markets_with_context, domain,
                     )
 
-                    script_lines = [f"INTRO: {result.get('intro', '')}"]
+                    script_lines = []
                     for seg in result.get("segments", []):
-                        script_lines.append(f"\nSEGMENT ({seg.get('market_id', '?')}):")
+                        script_lines.append(f"SEGMENT ({seg.get('market_id', '?')}):")
                         script_lines.append(seg.get("narration", ""))
-                    script_lines.append(f"\nOUTRO: {result.get('outro', '')}")
+                        script_lines.append("")
+                    script_lines.append(f"OUTRO: {STANDARDIZED_OUTRO}")
                     script_text = "\n".join(script_lines)
 
                     conn.execute(

@@ -12,9 +12,10 @@ load_dotenv()
 class ScoringWeights:
     surprise: float = 0.12
     narrative_arc: float = 0.08
-    volume: float = 0.05
+    volume: float = 0.02
+    volume_surprise: float = 0.05
     absurdity: float = 0.10
-    significance: float = 0.05
+    significance: float = 0.03
     shareability: float = 0.20
     humor: float = 0.15
     relatability: float = 0.10
@@ -27,6 +28,7 @@ class ScoringWeights:
             surprise=float(os.getenv("WEIGHT_SURPRISE", cls.surprise)),
             narrative_arc=float(os.getenv("WEIGHT_NARRATIVE_ARC", cls.narrative_arc)),
             volume=float(os.getenv("WEIGHT_VOLUME", cls.volume)),
+            volume_surprise=float(os.getenv("WEIGHT_VOLUME_SURPRISE", cls.volume_surprise)),
             absurdity=float(os.getenv("WEIGHT_ABSURDITY", cls.absurdity)),
             significance=float(os.getenv("WEIGHT_SIGNIFICANCE", cls.significance)),
             shareability=float(os.getenv("WEIGHT_SHAREABILITY", cls.shareability)),

@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS scores (
     narrative_arc   DOUBLE PRECISION,
     absurdity       DOUBLE PRECISION,
     volume_score    DOUBLE PRECISION,
+    volume_surprise DOUBLE PRECISION,
     significance    DOUBLE PRECISION,
     shareability    DOUBLE PRECISION,
     humor           DOUBLE PRECISION,

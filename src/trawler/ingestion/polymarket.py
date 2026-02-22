@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 
@@ -30,7 +31,19 @@ NOVELTY_TAG_IDS = [
     102846,  # Best of 2025
 ]
 SPORTS_TAG_ID = 1
-CRYPTO_PRICES_TAG_ID = 1312
+CRYPTO_TAG_IDS = [21, 744, 1312]  # Crypto, cryptocurrency, Crypto Prices
+
+_CRYPTO_KEYWORDS = re.compile(
+    r"\b(?:bitcoin|btc|ethereum|eth|crypto|token|blockchain|airdrop|defi|nft"
+    r"|solana|sol\b|cardano|polkadot|dogecoin|shib|memecoin|meme coin"
+    r"|fdv|fully diluted|market cap.*launch|staking|yield farm"
+    r"|uniswap|aave|compound|sushiswap|pancakeswap"
+    r"|satoshi|altcoin|ico|ido|launchpad|tokenomics"
+    r"|tvl|total value locked|liquidity pool|dex\b|cex\b"
+    r"|binance|coinbase|kraken|ftx|bybit"
+    r"|wif\b|bonk\b|pepe\b|floki\b|shiba)\b",
+    re.IGNORECASE,
+)
 
 
 def _fetch_closed_events_page(
@@ -143,7 +156,7 @@ def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
     )
     volume_filtered = [
         e for e in volume_raw
-        if not _event_has_tag(e, CRYPTO_PRICES_TAG_ID)
+        if not any(_event_has_tag(e, tid) for tid in CRYPTO_TAG_IDS)
     ][:bucket_b_size]
     buckets.append(("volume (no sports/crypto)", volume_filtered))
 
@@ -155,6 +168,10 @@ def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
         )))
 
     merged = _dedup_events(buckets)
+    merged = [
+        e for e in merged
+        if not any(_event_has_tag(e, tid) for tid in CRYPTO_TAG_IDS)
+    ]
     return merged[:limit]
 
 
@@ -304,6 +321,7 @@ def run_ingest(limit: int = 500) -> None:
 
     all_markets: list[tuple[str, dict]] = []
     skipped_low_vol = 0
+    skipped_crypto = 0
     for event in events:
         event_id = str(event.get("id", ""))
         for market in event.get("markets", []):
@@ -311,11 +329,16 @@ def run_ingest(limit: int = 500) -> None:
             if vol < VOLUME_FLOOR:
                 skipped_low_vol += 1
                 continue
+            question = market.get("question", "") or ""
+            if _CRYPTO_KEYWORDS.search(question):
+                skipped_crypto += 1
+                continue
             all_markets.append((event_id, market))
 
     console.print(
         f"Found [cyan]{len(all_markets)}[/cyan] markets across those events"
-        f" ([dim]{skipped_low_vol} skipped below ${VOLUME_FLOOR} volume[/dim])."
+        f" ([dim]{skipped_low_vol} below ${VOLUME_FLOOR} vol, "
+        f"{skipped_crypto} crypto filtered[/dim])."
     )
 
     # Upsert events and markets
