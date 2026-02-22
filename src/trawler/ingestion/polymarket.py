@@ -18,17 +18,20 @@ CLOB_BASE = "https://clob.polymarket.com"
 
 PAGE_SIZE = 100
 PRICE_HISTORY_FIDELITY = 60  # minutes
-VOLUME_FLOOR = 500  # skip markets below this dollar volume
+VOLUME_FLOOR = 5_000
+MAX_MARKETS_PER_EVENT = 3
 
 NOVELTY_TAG_IDS = [
-    596,     # Culture
     286,     # Celebrities
     53,      # Movies
     100,     # Music
     315,     # Entertainment
-    1401,    # Tech
-    107,     # Business
-    102846,  # Best of 2025
+    596,     # Culture
+    18,      # Awards (Oscars, Grammys)
+    439,     # AI
+    102823,  # Google Search
+    1597,    # Global Elections
+    101588,  # 2025 Predictions
 ]
 SPORTS_TAG_ID = 1
 CRYPTO_TAG_IDS = [21, 744, 1312]  # Crypto, cryptocurrency, Crypto Prices
@@ -127,21 +130,25 @@ def _event_has_tag(event: dict, tag_id: int) -> bool:
 
 
 _TAG_LABELS = {
-    596: "Culture", 286: "Celebrities", 53: "Movies", 100: "Music",
-    315: "Entertainment", 1401: "Tech", 107: "Business", 102846: "Best of 2025",
+    286: "Celebrities", 53: "Movies", 100: "Music", 315: "Entertainment",
+    596: "Culture", 18: "Awards", 439: "AI", 102823: "Google Search",
+    1597: "Global Elections", 101588: "2025 Predictions",
 }
 
 
 def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
     """Fetch a diverse pool of closed events using multiple strategies.
 
-    Bucket A (25%): competitive ordering — contested markets with dramatic odds
-    Bucket B (25%): high-volume, excluding sports and crypto prices
-    Bucket C (50%): tag-targeted fetches for human-appeal categories
+    Bucket A (25%): competitive ordering — contested/dramatic markets
+    Bucket B (15%): high-volume, excluding sports and crypto
+    Bucket C (45%): tag-targeted by competitive — variety engine
+    Bucket D (15%): niche/underdog via liquidity ascending
     """
     bucket_a_size = max(limit // 4, 1)
-    bucket_b_size = max(limit // 4, 1)
-    bucket_c_per_tag = max(limit // (2 * len(NOVELTY_TAG_IDS)), 1)
+    bucket_b_size = max(int(limit * 0.15), 1)
+    n_tags = len(NOVELTY_TAG_IDS)
+    bucket_c_per_tag = max(int(limit * 0.45) // n_tags, 1)
+    bucket_d_size = max(int(limit * 0.15), 1)
 
     buckets: list[tuple[str, list[dict]]] = []
 
@@ -164,8 +171,13 @@ def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
         tag_label = _TAG_LABELS.get(tag_id, str(tag_id))
         buckets.append((tag_label, _fetch_closed_events_page(
             client, limit=bucket_c_per_tag, label=f"tag: {tag_label}",
-            order="volume", ascending=False, tag_id=tag_id,
+            order="competitive", ascending=False, tag_id=tag_id,
         )))
+
+    buckets.append(("niche (low liquidity)", _fetch_closed_events_page(
+        client, limit=bucket_d_size + 50, label="niche low-liquidity",
+        order="liquidity", ascending=True,
+    )))
 
     merged = _dedup_events(buckets)
     merged = [
@@ -322,8 +334,10 @@ def run_ingest(limit: int = 500) -> None:
     all_markets: list[tuple[str, dict]] = []
     skipped_low_vol = 0
     skipped_crypto = 0
+    skipped_cap = 0
     for event in events:
         event_id = str(event.get("id", ""))
+        event_markets = []
         for market in event.get("markets", []):
             vol = float(market.get("volume", 0) or 0)
             if vol < VOLUME_FLOOR:
@@ -333,12 +347,19 @@ def run_ingest(limit: int = 500) -> None:
             if _CRYPTO_KEYWORDS.search(question):
                 skipped_crypto += 1
                 continue
-            all_markets.append((event_id, market))
+            event_markets.append((vol, market))
+
+        event_markets.sort(key=lambda x: x[0], reverse=True)
+        for i, (_, market) in enumerate(event_markets):
+            if i < MAX_MARKETS_PER_EVENT:
+                all_markets.append((event_id, market))
+            else:
+                skipped_cap += 1
 
     console.print(
         f"Found [cyan]{len(all_markets)}[/cyan] markets across those events"
-        f" ([dim]{skipped_low_vol} below ${VOLUME_FLOOR} vol, "
-        f"{skipped_crypto} crypto filtered[/dim])."
+        f" ([dim]{skipped_low_vol} below ${VOLUME_FLOOR:,} vol, "
+        f"{skipped_crypto} crypto, {skipped_cap} capped[/dim])."
     )
 
     # Upsert events and markets
@@ -411,6 +432,77 @@ def run_ingest(limit: int = 500) -> None:
                 progress.update(task, advance=1)
 
                 # Be polite to the API
+                time.sleep(0.1)
+
+    console.print(
+        f"[green]Done.[/green] Price history fetched for [cyan]{fetched}[/cyan] markets"
+        f" ([yellow]{errors} errors[/yellow])."
+    )
+
+
+def run_backfill_history() -> None:
+    """Fetch price history for all markets in the DB that are missing it."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT m.id, m.asset_ids FROM markets m
+            WHERE NOT EXISTS (
+                SELECT 1 FROM price_history ph WHERE ph.market_id = m.id
+            )
+            """
+        ).fetchall()
+
+        if not rows:
+            console.print("[dim]All markets already have price history.[/dim]")
+            return
+
+        console.print(f"Backfilling price history for [cyan]{len(rows)}[/cyan] markets…")
+
+    fetched = 0
+    errors = 0
+
+    with get_conn() as conn, httpx.Client(timeout=30) as client:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Price history…", total=len(rows))
+
+            for row in rows:
+                market_id = row["id"]
+                asset_ids = row["asset_ids"]
+                if isinstance(asset_ids, str):
+                    try:
+                        asset_ids = json.loads(asset_ids)
+                    except json.JSONDecodeError:
+                        asset_ids = []
+
+                asset_id = asset_ids[0] if asset_ids else None
+                if not asset_id:
+                    progress.update(task, advance=1)
+                    continue
+
+                try:
+                    history = _fetch_price_history(client, asset_id)
+                    count = _insert_price_history(conn, market_id, history)
+                    if count > 0:
+                        fetched += 1
+                    conn.commit()
+                except httpx.HTTPStatusError as exc:
+                    errors += 1
+                    if errors <= 3:
+                        console.print(
+                            f"[yellow]Warning: {exc.response.status_code} for market {market_id}[/yellow]"
+                        )
+                except Exception as exc:
+                    errors += 1
+                    if errors <= 3:
+                        console.print(f"[yellow]Warning: {exc} for market {market_id}[/yellow]")
+
+                progress.update(task, advance=1)
                 time.sleep(0.1)
 
     console.print(

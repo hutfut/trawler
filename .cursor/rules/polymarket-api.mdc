@@ -31,10 +31,12 @@ Key params for `/events`:
 
 Key tag IDs for ingestion:
 - Sports: `1` (excluded from volume bucket)
-- Crypto Prices: `1312` (excluded from volume bucket — repetitive BTC/ETH targets)
-- Human-appeal tags (bucket C, 50% of budget): Culture `596`, Celebrities `286`, Movies `53`, Music `100`, Entertainment `315`, Tech `1401`, Business `107`, Best of 2025 `102846`
-- `order=competitive` surfaces contested/dramatic markets — best for novelty
+- Crypto: `21`, `744`, `1312` — ALL excluded at event and market level
+- Human-appeal tags (bucket C, 45% of budget, ordered by competitive): Celebrities `286`, Movies `53`, Music `100`, Entertainment `315`, Culture `596`, Awards `18`, AI `439`, Google Search `102823`, Global Elections `1597`, 2025 Predictions `101588`
+- `order=competitive` surfaces contested/dramatic markets — primary ordering for tag bucket
 - Market objects have a `description` field with resolution criteria and real-world context — store and use for script generation
+
+Ingestion strategy (4 buckets): 25% competitive, 15% volume (no sports/crypto), 45% tag-targeted by competitive, 15% niche (liquidity ascending). Max 3 markets per event. Volume floor: $5,000.
 
 ## CLOB API (price history)
 

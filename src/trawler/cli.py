@@ -49,6 +49,14 @@ def backfill():
     run_backfill_resolutions()
 
 
+@app.command(name="backfill-history")
+def backfill_history():
+    """Fetch price history for all markets missing it in the DB."""
+    from trawler.ingestion.polymarket import run_backfill_history
+
+    run_backfill_history()
+
+
 @app.command()
 def score(
     rescore: bool = typer.Option(False, help="Re-score already scored markets"),

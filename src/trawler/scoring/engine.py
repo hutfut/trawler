@@ -157,18 +157,37 @@ def _heuristic_llm_scores(question: str) -> dict[str, float | str]:
 
 
 def _compute_composite(weights, components: dict) -> float:
-    return (
-        weights.surprise * components["surprise"]
-        + weights.narrative_arc * components["narrative_arc"]
-        + weights.volume * components["volume_score"]
-        + weights.volume_surprise * components["volume_surprise"]
-        + weights.absurdity * components["absurdity"]
+    llm_part = (
+        weights.absurdity * components["absurdity"]
         + weights.significance * components["significance"]
         + weights.shareability * components["shareability"]
         + weights.humor * components["humor"]
         + weights.relatability * components["relatability"]
         + weights.controversy * components["controversy"]
         + weights.wtf_factor * components["wtf_factor"]
+    )
+    vol_part = (
+        weights.volume * components["volume_score"]
+        + weights.volume_surprise * components["volume_surprise"]
+    )
+
+    if components["narrative_arc"] < 0.05:
+        # Deadline bet: redistribute surprise + narrative_arc weight to LLM dims
+        llm_base_weight = (
+            weights.absurdity + weights.significance + weights.shareability
+            + weights.humor + weights.relatability + weights.controversy
+            + weights.wtf_factor
+        )
+        if llm_base_weight > 0:
+            scale = 1 + (weights.surprise + weights.narrative_arc) / llm_base_weight
+        else:
+            scale = 1.0
+        return vol_part + llm_part * scale
+
+    return (
+        weights.surprise * components["surprise"]
+        + weights.narrative_arc * components["narrative_arc"]
+        + vol_part + llm_part
     )
 
 

@@ -39,3 +39,7 @@ All 7 LLM dimensions are scored RELATIVE TO the domain. A 7/10 humor in Politics
 LLM scoring uses Haiku 4.5 with batches of 6 markets per API call. The prompt sends question, resolution, and volume for each market. Response includes domain + 7 dimension scores per market. Falls back to keyword heuristics (including keyword-based domain guess) on batch failure.
 
 Volume uses a sigmoid centered on the dataset median — $100K and $1B are NOT 10,000x apart in score.
+
+## Adaptive composite for deadline bets
+
+When `narrative_arc < 0.05` (flat price history, typical of deadline-style bets), the surprise + narrative_arc weight (0.20 total) is redistributed proportionally across all 7 LLM dimensions. This prevents culturally interesting deadline bets (e.g., "Will Zelenskyy wear a suit?") from being penalized for having boring odds charts. Swing markets with dramatic price movement use the standard weights.

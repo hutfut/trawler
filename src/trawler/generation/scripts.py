@@ -41,12 +41,23 @@ television altercation."
 - If the audience would not know who someone is, explain in one clause: \
 "Ansem — a crypto influencer turned amateur boxer —"
 
-ODDS ARE THE STORY:
-- You are given an "Odds range" for each market. ALWAYS use it.
-- "The market opened at 12% and climbed to 94%" shows what the crowd \
-believed and when they flipped. That arc is the hook.
-- For deadline bets, the angle is people betting early at long odds — NOT \
-that odds hit 100% near the deadline (obvious and boring).
+USING ODDS DATA:
+Each market is labeled either "Swing market" or "Deadline bet."
+- **Swing markets** had dramatic odds movement. Use the odds journey as the \
+hook: "The market opened at 12% and climbed to 94%" shows what the crowd \
+believed and when they changed their minds.
+- **Deadline bets** resolved because a deadline passed — the odds just drifted \
+to the obvious conclusion. Do NOT narrate the odds for these. Instead, the \
+angle is: why did this bet exist? What does it say about culture that people \
+wagered real money on this? The absurdity of the bet's existence IS the story.
+- If a market says "Odds data: Not available," ignore odds entirely. Focus on \
+the story, the people, and the cultural context.
+
+VOLUME:
+- Dollar volume is a tool, not a requirement. ONLY mention the dollar amount \
+when it is surprising relative to the topic. "$300K on a reality TV punch" is \
+gold. "$43K on Sam Altman TIME Person of the Year" adds nothing. If the \
+volume is unremarkable for the topic, skip it entirely.
 
 CONTEXT:
 - Use the market description, event title, and context provided. If there was \
@@ -61,11 +72,22 @@ money moved — NOT the outcome itself.
 TEMPORAL AWARENESS:
 - Today is {today}. Frame past events with appropriate distance.
 
+STRUCTURAL VARIETY:
+- Each segment MUST use a different opening structure. Examples: a rhetorical \
+question, a short declarative fragment, a temporal hook ("Back in 2024..."), \
+a number-first hook ("Sixteen million dollars..."), a person-first hook \
+("Jake Paul — the YouTuber everyone loves to hate —"). If two consecutive \
+segments open the same way, rewrite one.
+
 HARD RULES:
 - Each segment: 50-80 words (~15-20 seconds spoken). The video should run \
 60-90 seconds total.
 - NO intro. Jump straight into the first market.
 - NO outro. (We add one separately.)
+- Every segment MUST end on a quotable line — an observation, a zinger, an \
+absurd comparison, or a callback. NEVER end a segment with "the market \
+resolved," "the bet died," "nothing happened," or any variant of "and then \
+it was over." The last sentence is the screenshot moment.
 - NEVER be congratulatory to winners or admonishing to losers. No "bettors \
 lost big" or "the smart money won." Focus on the story, not scorekeeping.
 - NEVER repeat phrasing across segments. Vary structure and vocabulary.
@@ -95,7 +117,8 @@ def _format_market_block(market: dict, history: list[dict], score: dict) -> str:
         outcomes = json.loads(outcomes)
 
     prices = [h["price"] for h in history]
-    price_summary = ""
+    narrative_arc = score.get("narrative_arc", 0) or 0
+
     if prices:
         price_min = min(prices)
         price_max = max(prices)
@@ -105,6 +128,13 @@ def _format_market_block(market: dict, history: list[dict], score: dict) -> str:
             f"Odds range: {price_start:.0%} → {price_end:.0%} "
             f"(low: {price_min:.0%}, high: {price_max:.0%})"
         )
+        if narrative_arc >= 0.1:
+            bet_type = "Swing market (use the odds journey)"
+        else:
+            bet_type = "Deadline bet (odds uninstructive — focus on the story)"
+    else:
+        price_summary = "Odds data: Not available — focus on the story and cultural context."
+        bet_type = "Deadline bet (odds uninstructive — focus on the story)"
 
     volume_str = f"${market.get('volume', 0):,.0f}" if market.get("volume") else "unknown"
 
@@ -120,11 +150,11 @@ def _format_market_block(market: dict, history: list[dict], score: dict) -> str:
         f"Resolution: {market.get('resolution', 'unknown')}",
         f"Resolved on: {market.get('closed_time', 'unknown')}",
         f"Volume: {volume_str}",
+        f"Type: {bet_type}",
     ]
     if description:
         lines.append(f"Context: {description}")
-    if price_summary:
-        lines.append(price_summary)
+    lines.append(price_summary)
 
     return "\n".join(lines)
 
@@ -357,11 +387,12 @@ def run_generation(
             + ", ".join(f"{d} ({len(ms)})" for d, ms in by_domain.items())
         )
 
-        # Build (domain, group) pairs for all domains
         all_groups: list[tuple[str, list[dict]]] = []
         for domain, markets in by_domain.items():
             for i in range(0, len(markets), group_size):
-                all_groups.append((domain, markets[i : i + group_size]))
+                group = markets[i : i + group_size]
+                if len(group) >= 2:
+                    all_groups.append((domain, group))
 
         generated = 0
         skipped = 0
