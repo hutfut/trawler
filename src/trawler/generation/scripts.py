@@ -22,7 +22,7 @@ DOMAIN_THEMES: dict[str, str] = {
 }
 
 MIN_DOMAIN_SIZE = 3
-MIN_DOMAIN_COMPOSITE = 0.55
+MIN_DOMAIN_COMPOSITE = 0.65
 
 STANDARDIZED_OUTRO = "Follow for more."
 
@@ -276,10 +276,14 @@ def _load_top_markets_by_domain(
                   AND s.composite >= %s
                   AND m.resolution IS NOT NULL
                   AND m.resolution != ''
+                  AND m.id NOT IN (
+                      SELECT jsonb_array_elements_text(market_ids)
+                      FROM scripts
+                  )
                   AND CASE
                       WHEN s.domain = 'Politics'
                       THEN (s.humor + s.wtf_factor) / 2 >= 0.55
-                      ELSE TRUE
+                      ELSE (s.humor + s.wtf_factor) / 2 >= 0.45
                   END
                 ORDER BY m.event_id, s.composite DESC
             ) event_deduped
@@ -347,7 +351,7 @@ def _generate_compilation_script(
     )
 
     resp = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-sonnet-4-20250514",
         max_tokens=2000,
         system=COMPILATION_SYSTEM_PROMPT.format(
             today=date.today().isoformat(),

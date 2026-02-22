@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-import re
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 from rich.console import Console
@@ -18,8 +17,9 @@ CLOB_BASE = "https://clob.polymarket.com"
 
 PAGE_SIZE = 100
 PRICE_HISTORY_FIDELITY = 60  # minutes
-VOLUME_FLOOR = 5_000
+VOLUME_FLOOR = 15_000
 MAX_MARKETS_PER_EVENT = 3
+LOOKBACK_DAYS = 14
 
 NOVELTY_TAG_IDS = [
     286,     # Celebrities
@@ -28,20 +28,6 @@ NOVELTY_TAG_IDS = [
     146,     # YouTube
     530,     # TikTok
 ]
-SPORTS_TAG_ID = 1
-CRYPTO_TAG_IDS = [21, 744, 1312]  # Crypto, cryptocurrency, Crypto Prices
-
-_CRYPTO_KEYWORDS = re.compile(
-    r"\b(?:bitcoin|btc|ethereum|eth|crypto|token|blockchain|airdrop|defi|nft"
-    r"|solana|sol\b|cardano|polkadot|dogecoin|shib|memecoin|meme coin"
-    r"|fdv|fully diluted|market cap.*launch|staking|yield farm"
-    r"|uniswap|aave|compound|sushiswap|pancakeswap"
-    r"|satoshi|altcoin|ico|ido|launchpad|tokenomics"
-    r"|tvl|total value locked|liquidity pool|dex\b|cex\b"
-    r"|binance|coinbase|kraken|ftx|bybit"
-    r"|wif\b|bonk\b|pepe\b|floki\b|shiba)\b",
-    re.IGNORECASE,
-)
 
 
 def _fetch_closed_events_page(
@@ -52,11 +38,14 @@ def _fetch_closed_events_page(
     order: str = "volume",
     ascending: bool = False,
     tag_id: int | None = None,
-    exclude_tag_id: int | None = None,
+    seen_ids: set[str] | None = None,
+    end_date_min: str | None = None,
+    max_pages: int = 10,
 ) -> list[dict]:
-    """Paginate through closed events with a given ordering and optional tag filters."""
+    """Paginate through closed events, skipping already-seen IDs."""
     events: list[dict] = []
     offset = 0
+    pages_fetched = 0
 
     with Progress(
         SpinnerColumn(),
@@ -67,8 +56,8 @@ def _fetch_closed_events_page(
     ) as progress:
         task = progress.add_task(f"Fetching {label}…", total=limit)
 
-        while len(events) < limit:
-            batch_limit = min(PAGE_SIZE, limit - len(events))
+        while len(events) < limit and pages_fetched < max_pages:
+            batch_limit = min(PAGE_SIZE, limit * 2)
             params: dict = {
                 "closed": "true",
                 "order": order,
@@ -78,8 +67,8 @@ def _fetch_closed_events_page(
             }
             if tag_id is not None:
                 params["tag_id"] = tag_id
-            if exclude_tag_id is not None:
-                params["exclude_tag_id"] = exclude_tag_id
+            if end_date_min is not None:
+                params["end_date_min"] = end_date_min
 
             resp = client.get(f"{GAMMA_BASE}/events", params=params)
             resp.raise_for_status()
@@ -87,9 +76,14 @@ def _fetch_closed_events_page(
             if not batch:
                 break
 
-            events.extend(batch)
+            new_events = [
+                e for e in batch
+                if str(e.get("id", "")) not in (seen_ids or set())
+            ]
+            events.extend(new_events)
             offset += len(batch)
-            progress.update(task, completed=len(events))
+            pages_fetched += 1
+            progress.update(task, completed=min(len(events), limit))
 
     return events[:limit]
 
@@ -130,11 +124,16 @@ _TAG_LABELS = {
 }
 
 
-def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
+def _fetch_closed_events(
+    client: httpx.Client,
+    limit: int,
+    seen_ids: set[str] | None = None,
+    end_date_min: str | None = None,
+) -> list[dict]:
     """Fetch a diverse pool of closed events using multiple strategies.
 
     Bucket A (25%): competitive ordering — contested/dramatic markets
-    Bucket B (15%): high-volume, excluding sports and crypto
+    Bucket B (15%): high-volume
     Bucket C (45%): tag-targeted by competitive — variety engine
     Bucket D (15%): niche/underdog via liquidity ascending
     """
@@ -144,40 +143,33 @@ def _fetch_closed_events(client: httpx.Client, limit: int) -> list[dict]:
     bucket_c_per_tag = max(int(limit * 0.45) // n_tags, 1)
     bucket_d_size = max(int(limit * 0.15), 1)
 
+    common = dict(seen_ids=seen_ids, end_date_min=end_date_min)
+
     buckets: list[tuple[str, list[dict]]] = []
 
     buckets.append(("competitive", _fetch_closed_events_page(
         client, limit=bucket_a_size, label="competitive events",
-        order="competitive", ascending=False,
+        order="competitive", ascending=False, **common,
     )))
 
-    volume_raw = _fetch_closed_events_page(
-        client, limit=bucket_b_size + 50, label="high-volume non-sports",
-        order="volume", ascending=False, exclude_tag_id=SPORTS_TAG_ID,
-    )
-    volume_filtered = [
-        e for e in volume_raw
-        if not any(_event_has_tag(e, tid) for tid in CRYPTO_TAG_IDS)
-    ][:bucket_b_size]
-    buckets.append(("volume (no sports/crypto)", volume_filtered))
+    buckets.append(("high-volume", _fetch_closed_events_page(
+        client, limit=bucket_b_size, label="high-volume events",
+        order="volume", ascending=False, **common,
+    )))
 
     for tag_id in NOVELTY_TAG_IDS:
         tag_label = _TAG_LABELS.get(tag_id, str(tag_id))
         buckets.append((tag_label, _fetch_closed_events_page(
             client, limit=bucket_c_per_tag, label=f"tag: {tag_label}",
-            order="competitive", ascending=False, tag_id=tag_id,
+            order="competitive", ascending=False, tag_id=tag_id, **common,
         )))
 
     buckets.append(("niche (low liquidity)", _fetch_closed_events_page(
-        client, limit=bucket_d_size + 50, label="niche low-liquidity",
-        order="liquidity", ascending=True,
+        client, limit=bucket_d_size, label="niche low-liquidity",
+        order="liquidity", ascending=True, **common,
     )))
 
     merged = _dedup_events(buckets)
-    merged = [
-        e for e in merged
-        if not any(_event_has_tag(e, tid) for tid in CRYPTO_TAG_IDS)
-    ]
     return merged[:limit]
 
 
@@ -318,16 +310,25 @@ def _insert_price_history(conn, market_id: str, history: list[dict]) -> int:
 
 
 def run_ingest(limit: int = 500) -> None:
+    end_date_min = (date.today() - timedelta(days=LOOKBACK_DAYS)).isoformat()
     console.print(f"[bold]Ingesting up to {limit} resolved events from Polymarket…[/bold]")
+    console.print(f"[dim]Time window: {end_date_min} → today[/dim]")
+
+    with get_conn() as conn:
+        rows = conn.execute("SELECT id FROM events").fetchall()
+        seen_event_ids = {r["id"] for r in rows}
+    console.print(f"[dim]({len(seen_event_ids)} events already in DB — fetching new only)[/dim]")
 
     with httpx.Client(timeout=30) as client:
-        events = _fetch_closed_events(client, limit=limit)
+        events = _fetch_closed_events(
+            client, limit=limit,
+            seen_ids=seen_event_ids, end_date_min=end_date_min,
+        )
 
-    console.print(f"Fetched [cyan]{len(events)}[/cyan] closed events.")
+    console.print(f"Fetched [cyan]{len(events)}[/cyan] new closed events.")
 
     all_markets: list[tuple[str, dict]] = []
     skipped_low_vol = 0
-    skipped_crypto = 0
     skipped_cap = 0
     for event in events:
         event_id = str(event.get("id", ""))
@@ -336,10 +337,6 @@ def run_ingest(limit: int = 500) -> None:
             vol = float(market.get("volume", 0) or 0)
             if vol < VOLUME_FLOOR:
                 skipped_low_vol += 1
-                continue
-            question = market.get("question", "") or ""
-            if _CRYPTO_KEYWORDS.search(question):
-                skipped_crypto += 1
                 continue
             event_markets.append((vol, market))
 
@@ -353,7 +350,7 @@ def run_ingest(limit: int = 500) -> None:
     console.print(
         f"Found [cyan]{len(all_markets)}[/cyan] markets across those events"
         f" ([dim]{skipped_low_vol} below ${VOLUME_FLOOR:,} vol, "
-        f"{skipped_crypto} crypto, {skipped_cap} capped[/dim])."
+        f"{skipped_cap} capped[/dim])."
     )
 
     # Upsert events and markets

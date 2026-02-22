@@ -40,9 +40,12 @@ LLM scoring uses Haiku 4.5 with batches of 6 markets per API call. The prompt se
 
 Volume uses a sigmoid centered on the dataset median — $100K and $1B are NOT 10,000x apart in score.
 
-## Entertainment gate
+## Quality thresholds
 
-Politics markets must pass `(humor + wtf_factor) / 2 >= 0.55` to enter scripts. This filters serious geopolitical markets (Iran strikes, Putin coup) that score well on significance but bore the target audience.
+- **MIN_DOMAIN_COMPOSITE**: 0.65 — only genuinely high-scoring markets enter scripts.
+- **VOLUME_FLOOR**: $15,000 at ingestion — low-volume markets in a 2-week window mean nobody cared.
+- **Entertainment gate (universal)**: `(humor + wtf_factor) / 2 >= 0.45` for all domains. Politics uses the stricter 0.55. Filters boring daily price bets, routine soccer matches, macro finance.
+- **Already-scripted exclusion**: Markets used in previous scripts are excluded from generation. Domains accumulate markets across runs until they have enough for a full video.
 
 ## Adaptive composite for deadline bets
 
