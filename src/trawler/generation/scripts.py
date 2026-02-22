@@ -32,21 +32,39 @@ feel cohesive — the audience clicked for {domain_theme}, keep them engaged \
 all the way through.
 
 CRITICAL FRAMING RULES:
-- The story is the REAL-WORLD EVENT, not the bet. The prediction market is \
-the framing device, not the subject. Lead with what happened in the world, \
+- The story is the REAL-WORLD EVENT, not the bet. Lead with what happened, \
 then reveal what the market predicted and how much money was on the line.
-- For deadline-style bets, the interesting angle is that people bet early at \
-long odds — NOT that the odds converged to 100% near the deadline (that's \
-obvious and boring).
-- Use the market description and context provided to ground your narration in \
-real-world details. Don't just talk about odds and money — talk about the \
-actual event, the drama, the controversy, the human story.
+- ALWAYS mention the odds journey. You are given an "Odds range" for each \
+market — use it. Tell the audience where odds started and where they ended. \
+Example: "The market opened at 12% and climbed to 94% before resolving Yes." \
+The odds movement IS the story — it shows what the crowd believed and when \
+they changed their minds.
+- For deadline-style bets, the hook is that people bet early at long odds — \
+NOT that odds converged to 100% near the deadline (that's obvious).
+- Use the market description and context to ground narration in real-world \
+details. If there was a court case, a controversy, an opponent, competing \
+candidates, or other context — mention it. Don't narrate in a vacuum.
+- If the market involves a person, mention who else was in contention or \
+what the stakes were beyond the bet itself.
+
+WHAT TO AVOID:
+- NEVER be congratulatory to winners or admonishing to losers. Don't say \
+"bettors lost big" or "those who bet early were rewarded." The focus is \
+the MARKET and the STORY, not winners/losers.
+- NEVER repeat the same phrasing across segments. If one segment says "no \
+one thought it would happen," the next segment CANNOT use similar language. \
+Vary your sentence structure and vocabulary across every segment.
+- NEVER use "market resolved Yes/No" as the climax of a segment. That's \
+mechanical. Describe what actually happened in the world.
+- NEVER present well-known outcomes as revelations. If everyone already knows \
+Biden dropped out or who won the election, the angle must be the MARKET \
+DYNAMICS (early odds, who bet what, how the crowd was wrong), not the \
+outcome itself.
 
 TEMPORAL AWARENESS:
 - Today's date is {today}. You will be given the date each market resolved.
-- Frame events with appropriate temporal distance. Something that resolved a \
-year ago should sound like a retrospective, not breaking news.
-- Never make past events sound like they just happened.
+- Frame events with appropriate temporal distance. A year-old event is a \
+retrospective, not breaking news.
 
 TONE: conversational, slightly incredulous, like you're telling a friend \
 something unbelievable. Not overly formal, not cringe. Think "Daily Dose of \
@@ -56,8 +74,7 @@ STRUCTURE RULES:
 - Each segment is 10-20 seconds when read aloud (~30-60 words).
 - Start each segment with a hook about the real-world event, NOT about the bet.
 - The intro MUST be unique and specific — reference the most attention-grabbing \
-market in the batch. NEVER use generic openers like "people bet millions on \
-wild things."
+market in the batch. NEVER use generic openers.
 - Never give financial advice or encourage betting.
 - Do NOT use hashtags, emojis, or platform-specific jargon in the script."""
 
@@ -144,6 +161,26 @@ def _normalize_question(q: str) -> str:
     return re.sub(r"\s+", " ", q).strip()
 
 
+_ENTITY_PATTERNS = re.compile(
+    r"\b("
+    r"trump|biden|harris|obama|clinton|pelosi|mcconnell|desantis|pence|"
+    r"vance|walz|newsom|rfk|vivek|haley|tucker carlson|bernie|aoc|"
+    r"xi jinping|putin|zelenskyy|zelensky|modi|macron|trudeau|netanyahu|"
+    r"elon musk|zuckerberg|bezos|gates|altman|satoshi|"
+    r"kanye|kardashian|taylor swift|billie eilish|bad bunny|drake|"
+    r"jake paul|mike tyson|logan paul|messi|lebron|"
+    r"tesla|spacex|openai|chatgpt|bitcoin|ethereum|"
+    r"epstein|diddy|tiktok ban"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_entities(question: str) -> set[str]:
+    """Pull recognizable entity names from a market question."""
+    return {m.lower() for m in _ENTITY_PATTERNS.findall(question)}
+
+
 def _semantic_dedup(markets: list[dict]) -> list[dict]:
     """Keep only the highest-composite market per normalized question cluster."""
     clusters: dict[str, dict] = {}
@@ -154,34 +191,69 @@ def _semantic_dedup(markets: list[dict]) -> list[dict]:
     return sorted(clusters.values(), key=lambda m: m.get("composite", 0), reverse=True)
 
 
+def _entity_dedup(
+    markets: list[dict], used_entities: set[str], max_per_entity: int = 1,
+) -> list[dict]:
+    """Filter markets so each named entity appears at most max_per_entity times.
+
+    Updates used_entities in place with the entities that are selected.
+    Markets are assumed to be pre-sorted by composite (highest first).
+    """
+    entity_counts: dict[str, int] = {}
+    for ent in used_entities:
+        entity_counts[ent] = max_per_entity
+
+    result = []
+    for m in markets:
+        entities = _extract_entities(m["question"])
+        blocked = any(entity_counts.get(e, 0) >= max_per_entity for e in entities)
+        if blocked and entities:
+            continue
+        result.append(m)
+        for e in entities:
+            entity_counts[e] = entity_counts.get(e, 0) + 1
+            used_entities.add(e)
+
+    return result
+
+
 def _load_top_markets_by_domain(
     conn, per_domain: int,
 ) -> dict[str, list[dict]]:
-    """Load top-scored markets grouped by domain, one per event, deduped."""
-    pool_size = per_domain * 5
+    """Load top-scored markets per domain, one per event, deduped.
+
+    Uses a windowed query to fetch the top markets within each domain
+    independently so no single domain monopolises the pool.
+    """
+    pool_per = per_domain * 3
     rows = conn.execute(
         """
         SELECT * FROM (
-            SELECT DISTINCT ON (m.event_id)
-                   m.*, e.title AS event_title,
-                   s.surprise, s.narrative_arc, s.absurdity,
-                   s.volume_score, s.significance, s.shareability,
-                   s.humor, s.relatability, s.controversy,
-                   s.wtf_factor, s.domain, s.composite
-            FROM markets m
-            JOIN events e ON m.event_id = e.id
-            JOIN scores s ON m.id = s.market_id
-            WHERE m.volume >= 500
-              AND s.domain IS NOT NULL
-              AND (s.narrative_arc > 0.02 OR s.surprise > 0.5
-                   OR s.absurdity > 0.3 OR s.shareability > 0.5
-                   OR s.humor > 0.5 OR s.wtf_factor > 0.5)
-            ORDER BY m.event_id, s.composite DESC
-        ) deduped
-        ORDER BY composite DESC
-        LIMIT %s
+            SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY domain ORDER BY composite DESC
+            ) AS domain_rank
+            FROM (
+                SELECT DISTINCT ON (m.event_id)
+                       m.*, e.title AS event_title,
+                       s.surprise, s.narrative_arc, s.absurdity,
+                       s.volume_score, s.significance, s.shareability,
+                       s.humor, s.relatability, s.controversy,
+                       s.wtf_factor, s.domain, s.composite
+                FROM markets m
+                JOIN events e ON m.event_id = e.id
+                JOIN scores s ON m.id = s.market_id
+                WHERE m.volume >= 500
+                  AND s.domain IS NOT NULL
+                  AND (s.narrative_arc > 0.02 OR s.surprise > 0.5
+                       OR s.absurdity > 0.3 OR s.shareability > 0.5
+                       OR s.humor > 0.5 OR s.wtf_factor > 0.5)
+                ORDER BY m.event_id, s.composite DESC
+            ) event_deduped
+        ) ranked
+        WHERE domain_rank <= %s
+        ORDER BY domain, composite DESC
         """,
-        (pool_size,),
+        (pool_per,),
     ).fetchall()
 
     by_domain: dict[str, list[dict]] = {}
@@ -307,6 +379,7 @@ def run_generation(
         generated = 0
         skipped = 0
         used_ids: set[str] = set()
+        used_entities: set[str] = set()
 
         with Progress(
             SpinnerColumn(),
@@ -318,8 +391,8 @@ def run_generation(
             task = progress.add_task("Generating…", total=len(all_groups))
 
             for domain, group in all_groups:
-                # Cross-script dedup: drop markets already used
                 group = [m for m in group if m["id"] not in used_ids]
+                group = _entity_dedup(group, used_entities)
                 if not group:
                     progress.update(task, advance=1)
                     continue

@@ -41,9 +41,17 @@ Dimensions:
 1. ABSURDITY: "Wait, people actually bet on that?" — relative to the domain.
 2. SIGNIFICANCE: How major is this within its domain? A mid-tier election \
 market is less significant than a landmark ruling, even though both are Politics.
-3. SHAREABILITY: Would someone in this domain's audience send it to a friend?
+3. SHAREABILITY: Would someone send this to a friend as interesting content? \
+IMPORTANT: If the outcome is common knowledge (e.g. everyone knows who won \
+the election, who dropped out, who the VP is), shareability is LOW — there's \
+no surprise or novelty left to share. High shareability means the market \
+reveals something people DON'T already know, or its mere existence is the story.
 4. HUMOR: Genuinely funny for this domain's audience — not just surprising.
-5. RELATABILITY: Does a broad audience within this domain care, or is it niche?
+5. RELATABILITY: Does a broad audience within this domain find the MARKET \
+interesting, not just the topic? A market about a well-known event where the \
+outcome is obvious in hindsight scores LOW — the audience already knows what \
+happened. A market that surfaces something unexpected or niche-but-fascinating \
+scores HIGH.
 6. CONTROVERSY: Sparks debate among people who follow this domain.
 7. WTF_FACTOR: "I can't believe this exists" energy, calibrated to the domain.
 
